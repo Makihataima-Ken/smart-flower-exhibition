@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+
+# uv specific ignores
+uv.lock
+pyproject.toml
+
+# extension-specific ignores
+smart-flower-exhibition-output.md
+smart-flower-exhibition-output.txt
