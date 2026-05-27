@@ -1,3 +1,7 @@
+import collections.abc
+import collections
+collections.Mapping = collections.abc.Mapping
+
 from experta import Fact
 
 
