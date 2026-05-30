@@ -1,5 +1,3 @@
-# engine/knowledge_engine.py
-
 from experta import *
 
 from models.facts import (

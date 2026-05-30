@@ -2,93 +2,110 @@ import collections.abc
 import collections
 collections.Mapping = collections.abc.Mapping
 
-from experta import Fact
+from experta import Fact, Field
 
 
 class Grid(Fact):
-    """
-    Grid dimensions.
+    """Describes the rectangular grid dimensions.
 
-    Example:
-        Grid(width=6, height=6)
+    Fields:
+        rows (int): number of rows  (y-axis, 0 = top)
+        cols (int): number of columns (x-axis, 0 = left)
     """
-    pass
+    rows = Field(int, mandatory=True)
+    cols = Field(int, mandatory=True)
 
 
 class Warehouse(Fact):
-    """
-    Warehouse position.
+    """Location of the single warehouse on the grid.
 
-    Example:
-        Warehouse(x=2, y=3)
+    Fields:
+        x (int): column index
+        y (int): row index
+        stock (list[dict]): available bouquets
+            Each entry: {"flower": str, "color": str, "quantity": int}
     """
-    pass
+    x    = Field(int,  mandatory=True)
+    y    = Field(int,  mandatory=True)
+    stock = Field(list, mandatory=True)
 
 
 class Robot(Fact):
-    """
-    Robot current information.
+    """Current robot state.
 
     Fields:
-        x, y           -> current position
-        inventory      -> carried bouquets
-        load           -> current number of bouquets
-        max_load       -> maximum capacity
+        x         (int):  column
+        y         (int):  row
+        inventory (list): loaded bouquets – same dict schema as warehouse stock
+        capacity  (int):  maximum total bouquet units the robot can carry
     """
-    pass
+    x         = Field(int,  mandatory=True)
+    y         = Field(int,  mandatory=True)
+    inventory = Field(list, mandatory=True)
+    capacity  = Field(int,  mandatory=True)
 
 
 class Pavilion(Fact):
-    """
-    Pavilion information.
+    """A delivery destination with a bouquet requirement.
 
     Fields:
-        pavilion_id
-        flower_type
-        x, y
-        needs
-
-    Example:
-        needs = {
-            "Red": 2,
-            "White": 1
-        }
+        pavilion_id (str):  unique name, e.g. "P1"
+        x           (int):  column
+        y           (int):  row
+        needs       (list): required bouquets
+            Each entry: {"flower": str, "color": str, "quantity": int}
     """
-    pass
+    pavilion_id = Field(str,  mandatory=True)
+    x           = Field(int,  mandatory=True)
+    y           = Field(int,  mandatory=True)
+    needs       = Field(list, mandatory=True)
 
 
 class State(Fact):
-    """
-    Represents one node in the search tree.
+    """Represents one node in the search tree.
+
+    This fact drives the forward-chaining search: the engine fires rules
+    against the *current* (lowest-f_cost) state and generates children.
 
     Fields:
-        state_id
-        parent_id
-        action
-
-        robot_x
-        robot_y
-
-        inventory
-
-        remaining_needs
-
-        g_cost
-        h_cost
-        f_cost
+        state_id   (str):  unique identifier
+        parent_id  (str):  parent state_id  (None for root)
+        action     (str):  action that produced this state
+        robot_x    (int):  robot column
+        robot_y    (int):  robot row
+        inventory  (list): robot inventory at this state
+        needs      (dict): {pavilion_id -> list of remaining need dicts}
+        g_cost     (int):  cost from root
+        h_cost     (float):heuristic estimate to goal
+        f_cost     (float):g + h
+        active     (bool): True = still in the open list
     """
-    pass
+    state_id  = Field(str,   mandatory=True)
+    parent_id = Field(object, mandatory=True)   # str or None
+    action    = Field(str,   mandatory=True)
+    robot_x   = Field(int,   mandatory=True)
+    robot_y   = Field(int,   mandatory=True)
+    inventory = Field(list,  mandatory=True)
+    needs     = Field(dict,  mandatory=True)
+    g_cost    = Field(int,   mandatory=True)
+    h_cost    = Field(float, mandatory=True)
+    f_cost    = Field(float, mandatory=True)
+    active    = Field(bool,  mandatory=True)
 
 
 class Visited(Fact):
+    """Tracks already-explored state hashes to avoid re-expansion.
+
+    Fields:
+        state_hash (str): hash string produced by utils/helpers.py
     """
-    Used to avoid duplicate states.
-    """
-    pass
+    state_hash = Field(str, mandatory=True)
 
 
 class Goal(Fact):
+    """Marks that the goal has been reached.
+
+    Fields:
+        state_id (str): the winning state
     """
-    Marks that goal state was reached.
-    """
-    pass
+    state_id = Field(str, mandatory=True)
