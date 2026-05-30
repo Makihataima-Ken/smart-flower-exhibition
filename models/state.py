@@ -1,123 +1,111 @@
-import copy
-import json
+"""
+models/state.py
+---------------
+Provides:
+  • StateNode – a plain Python dataclass that mirrors the State Fact but
+    lives *outside* Experta's working memory.  It is used by the search
+    tree printer and path reconstructor.
+  • STATE_REGISTRY – a global dict  {state_id -> StateNode}  that every
+    rule file can import and write to when it creates a new state.
+
+Keeping the registry here (rather than inside the engine) means any
+module can read the search tree without circular imports.
+"""
+
+from dataclasses import dataclass
+from typing import List, Dict, Optional
 
 
-def create_state(
-    state_id,
-    parent_id,
-    action,
-    robot_x,
-    robot_y,
-    inventory,
-    remaining_needs,
-    g_cost=0,
-    h_cost=0,
-):
+# ---------------------------------------------------------------------------
+# StateNode dataclass
+# ---------------------------------------------------------------------------
+@dataclass
+class StateNode:
+    """One node in the search tree (mirroring the State Fact schema).
+
+    Stored in STATE_REGISTRY so the printer and path reconstructor can
+    access all generated states without querying the Experta engine.
     """
-    Create a normalized state dictionary.
-    """
+    state_id:  str
+    parent_id: Optional[str]
+    action:    str
+    robot_x:   int
+    robot_y:   int
+    inventory: List[Dict]
+    needs:     Dict[str, List[Dict]]   # {pavilion_id: [{flower,color,qty}]}
+    g_cost:    int
+    h_cost:    float
+    f_cost:    float
 
+    def __repr__(self) -> str:
+        inv_summary = sum(b["quantity"] for b in self.inventory)
+        needs_summary = {
+            pid: sum(b["quantity"] for b in blist)
+            for pid, blist in self.needs.items()
+        }
+        return (
+            f"StateNode(id={self.state_id}, parent={self.parent_id}, "
+            f"action={self.action!r}, pos=({self.robot_x},{self.robot_y}), "
+            f"inv_total={inv_summary}, remaining={needs_summary}, "
+            f"f={self.f_cost:.1f})"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Global search-tree registry
+# ---------------------------------------------------------------------------
+# All rule files import this dict and call register_state() to record nodes.
+STATE_REGISTRY: Dict[str, StateNode] = {}
+
+# Counter used to generate unique state ids
+_COUNTER = [0]
+
+
+def next_state_id() -> str:
+    """Return the next unique state id string, e.g. 'S0', 'S1', …"""
+    sid = f"S{_COUNTER[0]}"
+    _COUNTER[0] += 1
+    return sid
+
+
+def register_state(node: StateNode) -> None:
+    """Add a StateNode to the global registry."""
+    STATE_REGISTRY[node.state_id] = node
+
+
+def get_solution_path(goal_state_id: str) -> List[StateNode]:
+    """Walk parent pointers from goal back to root and return the path
+    in root-to-goal order.
+    """
+    path = []
+    sid = goal_state_id
+    while sid is not None:
+        node = STATE_REGISTRY.get(sid)
+        if node is None:
+            break
+        path.append(node)
+        sid = node.parent_id
+    path.reverse()
+    return path
+
+
+def clone_inventory(inventory) -> List[Dict]:
+    """Return a plain-Python deep copy of an inventory, regardless of whether
+    the source is a list, frozenlist, or contains frozendict entries.
+    Experta stores list/dict fields as frozenlist/frozendict internally.
+    """
+    return [
+        {"flower": b["flower"], "color": b["color"], "quantity": b["quantity"]}
+        for b in inventory
+    ]
+
+
+def clone_needs(needs) -> Dict[str, List[Dict]]:
+    """Return a plain-Python deep copy of a needs dict."""
     return {
-        "state_id": state_id,
-        "parent_id": parent_id,
-        "action": action,
-
-        "robot_x": robot_x,
-        "robot_y": robot_y,
-
-        "inventory": copy.deepcopy(inventory),
-
-        "remaining_needs": copy.deepcopy(remaining_needs),
-
-        "g_cost": g_cost,
-        "h_cost": h_cost,
-        "f_cost": g_cost + h_cost,
+        pid: [
+            {"flower": b["flower"], "color": b["color"], "quantity": b["quantity"]}
+            for b in blist
+        ]
+        for pid, blist in needs.items()
     }
-
-
-def calculate_f_cost(state):
-    """
-    Update f(n) = g(n) + h(n)
-    """
-
-    state["f_cost"] = state["g_cost"] + state["h_cost"]
-
-    return state["f_cost"]
-
-
-def state_signature(state):
-    """
-    Generate immutable unique signature for duplicate detection.
-
-    Used inside visited set.
-    """
-
-    inventory_signature = tuple(
-        sorted(
-            (
-                item["flower"],
-                item["color"],
-                item["quantity"]
-            )
-            for item in state["inventory"]
-        )
-    )
-
-    needs_signature = tuple(
-        sorted(
-            (
-                pavilion_id,
-                tuple(
-                    sorted(color_needs.items())
-                )
-            )
-            for pavilion_id, color_needs
-            in state["remaining_needs"].items()
-        )
-    )
-
-    return (
-        state["robot_x"],
-        state["robot_y"],
-        inventory_signature,
-        needs_signature,
-    )
-
-
-def serialize_state(state):
-    """
-    Convert state into pretty printable JSON string.
-    """
-
-    return json.dumps(state, indent=4, ensure_ascii=False)
-
-
-def clone_state(state):
-    """
-    Deep copy state safely.
-    """
-
-    return copy.deepcopy(state)
-
-
-def is_goal_state(state):
-    """
-    Goal conditions:
-
-    1. All pavilion needs satisfied
-    2. Robot inventory empty
-    """
-
-    inventory_empty = len(state["inventory"]) == 0
-
-    all_done = True
-
-    for pavilion_needs in state["remaining_needs"].values():
-
-        for quantity in pavilion_needs.values():
-
-            if quantity > 0:
-                all_done = False
-                break
-
-    return inventory_empty and all_done
