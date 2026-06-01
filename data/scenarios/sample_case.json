@@ -1,0 +1,71 @@
+{
+  "grid": {
+    "rows": 5,
+    "cols": 5
+  },
+
+  "warehouse": {
+    "x": 0,
+    "y": 0,
+    "stock": [
+      {
+        "flower": "Rose",
+        "color": "Red",
+        "quantity": 3
+      },
+      {
+        "flower": "Rose",
+        "color": "White",
+        "quantity": 2
+      },
+      {
+        "flower": "Tulip",
+        "color": "Red",
+        "quantity": 2
+      },
+      {
+        "flower": "Orchid",
+        "color": "Purple",
+        "quantity": 1
+      }
+    ]
+  },
+
+  "robot_start": {
+    "x": 2,
+    "y": 2
+  },
+
+  "pavilions": [
+    {
+      "pavilion_id": "P1",
+      "x": 4,
+      "y": 3,
+      "needs": [
+        {
+          "flower": "Rose",
+          "color": "Red",
+          "quantity": 2
+        },
+        {
+          "flower": "Rose",
+          "color": "White",
+          "quantity": 1
+        }
+      ]
+    },
+
+    {
+      "pavilion_id": "P2",
+      "x": 1,
+      "y": 4,
+      "needs": [
+        {
+          "flower": "Tulip",
+          "color": "Red",
+          "quantity": 2
+        }
+      ]
+    }
+  ]
+}
