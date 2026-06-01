@@ -1,5 +1,6 @@
 # Core dependency
 experta>=1.9.4
+pygame==2.6.1
 
 # Note: frozendict is installed as a transitive dependency of experta.
 # On Python 3.10+, apply the patch in README.md if you see a

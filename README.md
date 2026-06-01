@@ -261,14 +261,33 @@ Pure functions with no Experta dependency:
 pip install experta
 ```
 
-> **Note for Python 3.10+:** If you see `AttributeError: module 'collections' has no attribute 'Mapping'`,
-> apply the following one-line patch:
+> **Note for Python 3.10+:** Experta pulls in `frozendict==1.2`, whose `frozendict` class
+> subclasses `collections.Mapping` — an alias removed in Python 3.10. On 3.10+ you will see:
+> ```
+> AttributeError: module 'collections' has no attribute 'Mapping'
+> ```
+> (Experta's `__init__.py` swallows this in a bare `except ImportError`, so it may instead
+> surface as `ImportError: cannot import name 'KnowledgeEngine' from 'experta'`.)
+>
+> Fixing it requires repointing the base class at `collections.abc.Mapping` — simply importing
+> `collections.abc` is **not** enough, because `collections.Mapping` itself no longer exists.
+> Apply this patch:
 > ```bash
 > python -c "
 > import frozendict, re, pathlib
 > p = pathlib.Path(frozendict.__file__)
-> p.write_text(re.sub(r'import collections\b', 'import collections\nimport collections.abc', p.read_text()))
+> t = p.read_text()
+> t = t.replace('import collections\n', 'import collections\nimport collections.abc\n', 1)
+> t = t.replace('collections.Mapping', 'collections.abc.Mapping')
+> p.write_text(t)
 > "
+> ```
+>
+> If you also get `ModuleNotFoundError: No module named 'frozendict._frozendict_py'`, the
+> `frozendict` install is corrupted (mismatched metadata vs. source). Reinstall the correct
+> version first, then apply the patch above:
+> ```bash
+> pip install --force-reinstall --no-cache-dir "frozendict==1.2"
 > ```
 
 ### Run
