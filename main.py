@@ -24,13 +24,6 @@ for _stream in (sys.stdout, sys.stderr):
 
 from data.scenario_loader import load_scenario
 from engine.knowledge_engine import run_search
-from models.state import get_solution_path
-
-# Visualization is optional - import local animator when needed
-try:
-    from visualization.animator import SolutionAnimator
-except Exception:
-    SolutionAnimator = None
 
 
 def main():
@@ -92,19 +85,7 @@ def main():
 
     print("\nStarting A* search...\n")
 
-    goal_state_id = run_search(scenario)
-
-    # If search found a goal, reconstruct the path and launch the visualizer
-    if goal_state_id:
-        solution_path = get_solution_path(goal_state_id)
-        if SolutionAnimator is None:
-            print("Visualization not available (pygame may be missing). Skipping replay.")
-        else:
-            animator = SolutionAnimator(scenario, solution_path)
-            try:
-                animator.run()
-            except RuntimeError as e:
-                print("Failed to start visualizer:", e)
+    run_search(scenario)
 
 
 if __name__ == "__main__":

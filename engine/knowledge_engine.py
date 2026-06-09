@@ -270,16 +270,6 @@ def run_search(scenario: dict) -> None:
 
     if open_is_empty() and not _goal_asserted(engine):
         print("\nSearch exhausted – no solution found.")
-        return None
-
-    # If a Goal fact was asserted, return its state_id so callers can
-    # reconstruct the solution path. We intentionally do not change the
-    # search behaviour; this only exposes the found goal id.
-    if _goal_asserted(engine):
-        for fact in engine.facts.values():
-            if isinstance(fact, Goal):
-                return fact.get("state_id")
-    return None
 
 
 # ---------------------------------------------------------------------------
