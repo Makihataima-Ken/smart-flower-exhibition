@@ -36,7 +36,7 @@ class Robot(Fact):
     Fields:
         x         (int):  column
         y         (int):  row
-        inventory (list): loaded bouquets – same dict schema as warehouse stock
+        inventory (list): loaded bouquets - same dict schema as warehouse stock
         capacity  (int):  maximum total bouquet units the robot can carry
     """
     x         = Field(int,  mandatory=True)
@@ -91,6 +91,7 @@ class State(Fact):
     h_cost    = Field(float, mandatory=True)
     f_cost    = Field(float, mandatory=True)
     active    = Field(bool,  mandatory=True)
+    capacity  = Field(int,    mandatory=False)
 
 
 class Visited(Fact):
@@ -102,35 +103,19 @@ class Visited(Fact):
     state_hash = Field(str, mandatory=True)
 
 
-# class SearchCycle(Fact):
-#     """Tracks the current phase of the pure-Experta A* search."""
-#     phase = Field(str, mandatory=True)
+class SearchCycle(Fact):
+    """Phase marker for the pure-Experta A* control loop."""
+    phase = Field(str, mandatory=True)
 
 
-# class OpenNode(Fact):
-#     """Marker that a State is in the A* open list (frontier)."""
-#     state_id = Field(str, mandatory=True)
+class CurrentNode(Fact):
+    """The single node being expanded right now."""
+    state_id = Field(str, mandatory=True)
 
 
-# class ClosedNode(Fact):
-#     """Marker that a State has been expanded."""
-#     state_id = Field(str, mandatory=True)
-
-
-# class Evaluating(Fact):
-#     """Temporary fact used to walk to the minimum-f OpenNode."""
-#     state_id = Field(str, mandatory=True)
-#     f_cost = Field(float, mandatory=True)
-
-
-# class CurrentNode(Fact):
-#     """The single node that is being expanded right now."""
-#     state_id = Field(str, mandatory=True)
-
-
-# class NoSolution(Fact):
-#     """Asserted when the frontier is empty and no goal was found."""
-#     pass
+class NoSolution(Fact):
+    """Asserted when the frontier is empty and no goal was found."""
+    pass
 
 
 class Goal(Fact):
@@ -139,6 +124,4 @@ class Goal(Fact):
     Fields:
         state_id (str): the winning state
     """
-    state_id = Field(str, mandatory=True)
-
     state_id = Field(str, mandatory=True)

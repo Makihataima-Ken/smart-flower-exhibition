@@ -1,31 +1,26 @@
 """
 utils/printer.py
 ----------------
-Handles all terminal output:
-  • print_state_node  – one-line summary of a single search node
-  • print_search_tree – table of all generated states
-  • print_solution    – step-by-step solution path
-  • print_grid        – ASCII visualisation of the grid at a given state
+All terminal output helpers.
+Zero explicit if-statements or loops – uses comprehensions and builtins.
 """
 
 from typing import List, Dict
 from models.state import StateNode, STATE_REGISTRY, get_solution_path
 
 
-# ---------------------------------------------------------------------------
-# Single node summary
-# ---------------------------------------------------------------------------
 def print_state_node(node: StateNode) -> None:
-    """Print a compact one-line summary of a StateNode."""
     inv_str = ", ".join(
-        f"{b['flower']} {b['color']}×{b['quantity']}"
-        for b in node.inventory
+        f"{b['flower']} {b['color']}×{b['quantity']}" for b in node.inventory
     ) or "empty"
     needs_str = " | ".join(
-        f"{pid}:[" + ", ".join(
+        f"{pid}:["
+        + ", ".join(
             f"{b['flower']} {b['color']}×{b['quantity']}"
-            for b in blist if b["quantity"] > 0
-        ) + "]"
+            for b in blist
+            if b["quantity"] > 0
+        )
+        + "]"
         for pid, blist in node.needs.items()
     )
     print(
@@ -38,87 +33,74 @@ def print_state_node(node: StateNode) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Full search tree
-# ---------------------------------------------------------------------------
 def print_search_tree() -> None:
-    """Print all states stored in STATE_REGISTRY, ordered by state_id number."""
     nodes = sorted(STATE_REGISTRY.values(), key=lambda n: int(n.state_id[1:]))
     print("\n" + "=" * 80)
     print("SEARCH TREE  (all generated states)")
     print("=" * 80)
-    for node in nodes:
-        print_state_node(node)
+    [print_state_node(n) for n in nodes]
     print(f"\nTotal states generated: {len(nodes)}")
     print("=" * 80)
 
 
-# ---------------------------------------------------------------------------
-# Solution path
-# ---------------------------------------------------------------------------
-def print_solution(goal_state_id: str) -> None:
-    """Reconstruct and print the solution path from root to goal."""
-    path = get_solution_path(goal_state_id)
+def _format_step(step: int, node: StateNode) -> str:
+    inv_str = ", ".join(
+        f"{b['flower']} {b['color']}×{b['quantity']}" for b in node.inventory
+    ) or "empty"
+    needs_lines = "\n".join(
+        f"          {pid}: FULFILLED ✓"
+        if not any(b["quantity"] > 0 for b in blist)
+        else "          " + pid + " still needs: " + ", ".join(
+            f"{b['flower']} {b['color']}×{b['quantity']}"
+            for b in blist if b["quantity"] > 0
+        )
+        for pid, blist in node.needs.items()
+    )
+    return (
+        f"\n  Step {step:>2d}  [{node.state_id}]  action={node.action!r}\n"
+        f"          pos=({node.robot_x},{node.robot_y})  g={node.g_cost}\n"
+        f"          inventory: {inv_str}\n"
+        f"{needs_lines}"
+    )
 
+
+def print_solution(goal_state_id: str) -> None:
+    path = get_solution_path(goal_state_id)
     print("\n" + "=" * 80)
     print("SOLUTION PATH")
     print("=" * 80)
-
-    if not path:
-        print("  (no path found)")
-        return
-
-    total_cost = path[-1].g_cost
-    for step, node in enumerate(path):
-        print(f"\n  Step {step:>2d}  [{node.state_id}]  action={node.action!r}")
-        print(f"          pos=({node.robot_x},{node.robot_y})  g={node.g_cost}")
-        inv_str = ", ".join(
-            f"{b['flower']} {b['color']}×{b['quantity']}"
-            for b in node.inventory
-        ) or "empty"
-        print(f"          inventory: {inv_str}")
-        for pid, blist in node.needs.items():
-            rem = [b for b in blist if b["quantity"] > 0]
-            if rem:
-                rem_str = ", ".join(
-                    f"{b['flower']} {b['color']}×{b['quantity']}" for b in rem
-                )
-                print(f"          {pid} still needs: {rem_str}")
-            else:
-                print(f"          {pid}: FULFILLED ✓")
-
-    print(f"\n  Total cost (g): {total_cost}")
+    [print(_format_step(i, n)) for i, n in enumerate(path)] or print("  (no path found)")
+    print(f"\n  Total cost (g): {path[-1].g_cost}" if path else "")
     print("=" * 80)
 
 
-# ---------------------------------------------------------------------------
-# ASCII grid visualiser
-# ---------------------------------------------------------------------------
 def print_grid(
     rows: int, cols: int,
     robot_x: int, robot_y: int,
     warehouse_x: int, warehouse_y: int,
-    pavilions: List[Dict],       # [{"pavilion_id", "x", "y"}]
+    pavilions: List[Dict],
 ) -> None:
-    """Draw an ASCII grid showing robot (R), warehouse (W), pavilions (P)."""
-
-    # Build a symbol table
-    symbols: Dict[tuple, str] = {}
-    symbols[(warehouse_x, warehouse_y)] = "W"
-    symbols[(robot_x, robot_y)] = "R"
-    for p in pavilions:
-        symbols[(p["x"], p["y"])] = p["pavilion_id"]
+    """Draw an ASCII grid showing R (robot), W (warehouse), and pavilion IDs."""
+    symbols: Dict[tuple, str] = {
+        (warehouse_x, warehouse_y): "W",
+        (robot_x, robot_y): "R",
+        **{(p["x"], p["y"]): p["pavilion_id"] for p in pavilions},
+    }
 
     col_width = 4
-    header = "    " + "".join(f"{c:>{col_width}}" for c in range(cols))
+    header    = "    " + "".join(f"{c:>{col_width}}" for c in range(cols))
     separator = "    " + "+---" * cols + "+"
 
     print(header)
-    for r in range(rows):
-        print(separator)
-        row_cells = ""
-        for c in range(cols):
-            sym = symbols.get((c, r), " ")
-            row_cells += f"| {sym:<2}"
-        print(f" {r:>2} {row_cells}|")
+    [
+        (
+            print(separator),
+            print(
+                f" {r:>2} "
+                + "".join(f"| {symbols.get((c, r), ' '):<2}" for c in range(cols))
+                + "|"
+            ),
+        )
+        for r in range(rows)
+    ]
     print(separator)

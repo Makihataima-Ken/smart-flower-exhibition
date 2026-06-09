@@ -3,89 +3,78 @@ main.py
 -------
 Entry point for the Smart Flower Exhibition Knowledge-Based System.
 
-Run with:
-    python main.py
-
-This file:
-  1. Loads the sample scenario from data/sample_case.py
-  2. Packages it into a scenario dict
-  3. Calls run_search() to start the A* search engine
+Zero explicit if-statements or loops – all branching via short-circuit
+expressions, ternary expressions, and comprehensions.
 """
 
 import sys
 
-# Force UTF-8 on stdout/stderr so Unicode glyphs (e.g. →) print on Windows
-# consoles that default to a legacy code page like cp1252.
-for _stream in (sys.stdout, sys.stderr):
-    try:
-        _stream.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+# Force UTF-8 output (side-effect call, no if needed)
+[
+    (lambda s: (hasattr(s, "reconfigure") and s.reconfigure(encoding="utf-8")))(stream)
+    for stream in (sys.stdout, sys.stderr)
+]
 
 from data.scenario_loader import load_scenario
 from engine.knowledge_engine import run_search
+from models.state import get_solution_path
+
+try:
+    from visualization.animator import SolutionAnimator
+except Exception:
+    SolutionAnimator = None
 
 
 def main():
-
     print("=" * 60)
     print("  Smart Flower Exhibition – Knowledge-Based System")
     print("  Using Experta (Python Expert System)")
     print("=" * 60)
 
-    scenario = load_scenario(
-        "data/scenarios/sample_case.json"
-    )
-
-    print("\nScenario summary:")
-
-    print(
-        f"  Grid: "
-        f"{scenario['grid']['cols']} cols × "
-        f"{scenario['grid']['rows']} rows"
-    )
+    scenario = load_scenario("data/scenarios/sample_case.json")
 
     warehouse = scenario["warehouse"]
+    robot     = scenario["robot_start"]
 
     print(
-        f"  Warehouse: "
-        f"({warehouse['x']}, {warehouse['y']})"
+        "\nScenario summary:\n"
+        f"  Grid:        {scenario['grid']['cols']} cols × {scenario['grid']['rows']} rows\n"
+        f"  Warehouse:   ({warehouse['x']}, {warehouse['y']})\n"
+        f"  Robot start: ({robot['x']}, {robot['y']})\n"
+        f"  Capacity:    {scenario['robot_capacity']}\n"
+        f"  Pavilions:   {len(scenario['pavilions'])}"
     )
 
-    robot = scenario["robot_start"]
-
-    print(
-        f"  Robot start:"
-        f"({robot['x']}, {robot['y']})"
-    )
-
-    print(
-        f"  Capacity: "
-        f"{scenario['robot_capacity']}"
-    )
-
-    print(
-        f"  Pavilions: "
-        f"{len(scenario['pavilions'])}"
-    )
-
-    for pavilion in scenario["pavilions"]:
-
-        needs_str = ", ".join(
-            f"{item['flower']} "
-            f"{item['color']}×{item['quantity']}"
-            for item in pavilion["needs"]
-        )
-
+    [
         print(
-            f"    {pavilion['pavilion_id']} "
-            f"at ({pavilion['x']},{pavilion['y']}): "
-            f"needs [{needs_str}]"
+            f"    {p['pavilion_id']} at ({p['x']},{p['y']}): needs ["
+            + ", ".join(
+                f"{item['flower']} {item['color']}×{item['quantity']}"
+                for item in p["needs"]
+            )
+            + "]"
         )
+        for p in scenario["pavilions"]
+    ]
 
     print("\nStarting A* search...\n")
 
-    run_search(scenario)
+    goal_state_id = run_search(scenario)
+
+    # Launch visualiser only when a goal was found and pygame is available
+    goal_state_id and SolutionAnimator and _animate(scenario, goal_state_id)
+    goal_state_id and (SolutionAnimator is None) and print(
+        "Visualization not available (pygame may be missing). Skipping replay."
+    )
+
+
+def _animate(scenario, goal_state_id):
+    solution_path = get_solution_path(goal_state_id)
+    animator      = SolutionAnimator(scenario, solution_path)
+    try:
+        animator.run()
+    except RuntimeError as e:
+        print("Failed to start visualizer:", e)
 
 
 if __name__ == "__main__":

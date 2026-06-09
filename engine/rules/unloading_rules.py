@@ -30,7 +30,7 @@ from utils.helpers import (
 from utils.search_tree import is_closed, push_open
 
 
-def _try_unload(engine, current, pavilion_id, flower, color, qty, pavilion_positions):
+def _try_unload(engine, current, pavilion_id, flower, color, qty, pavilion_positions, warehouse_pos):
     """Try unloading qty units at the given pavilion and assert a child if valid."""
     new_inv   = clone_inventory(current["inventory"])
     new_needs = clone_needs(current["needs"])
@@ -49,7 +49,7 @@ def _try_unload(engine, current, pavilion_id, flower, color, qty, pavilion_posit
 
     new_g  = current["g_cost"] + 1
     new_h  = compute_heuristic(
-        current["robot_x"], current["robot_y"], new_needs, pavilion_positions
+        current["robot_x"], current["robot_y"], new_inv, new_needs, pavilion_positions, warehouse_pos
     )
     new_f  = new_g + new_h
     action = f"unload {pavilion_id} {flower} {color} {qty}"
@@ -87,7 +87,7 @@ def _try_unload(engine, current, pavilion_id, flower, color, qty, pavilion_posit
     print(f"    → generated child {sid} via {action!r} f={new_f:.1f}")
 
 
-def make_unloading_mixin(pavilion_list: list, pavilion_positions: dict):
+def make_unloading_mixin(pavilion_list: list, pavilion_positions: dict, warehouse_pos: dict):
     """Return unloading mixin closed over pavilion data."""
 
     # Map (x, y) → pavilion_id for fast lookup inside the rule
@@ -124,7 +124,7 @@ def make_unloading_mixin(pavilion_list: list, pavilion_positions: dict):
                 max_deliver = min(inv_item["quantity"], need_item["quantity"])
                 for qty in range(1, max_deliver + 1):
                     _try_unload(
-                        self, state, pid, flower, color, qty, pavilion_positions
+                        self, state, pid, flower, color, qty, pavilion_positions, warehouse_pos
                     )
             # NOTE: do NOT deactivate here – movement rule (salience=10) fires
             # last and deactivates the state after all generation rules finish.

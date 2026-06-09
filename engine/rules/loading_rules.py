@@ -28,7 +28,7 @@ from utils.helpers import can_load, add_to_inventory, state_hash
 from utils.search_tree import is_closed, push_open
 
 
-def _try_load(engine, current, flower, color, qty, cap, pavilion_positions):
+def _try_load(engine, current, flower, color, qty, cap, pavilion_positions, warehouse_pos):
     """Try loading qty units of (flower,color) and assert a child if valid."""
     new_inv   = clone_inventory(current["inventory"])
     new_needs = clone_needs(current["needs"])
@@ -45,7 +45,7 @@ def _try_load(engine, current, flower, color, qty, cap, pavilion_positions):
 
     new_g  = current["g_cost"] + 1
     new_h  = compute_heuristic(
-        current["robot_x"], current["robot_y"], new_needs, pavilion_positions
+        current["robot_x"], current["robot_y"], new_inv, new_needs, pavilion_positions, warehouse_pos
     )
     new_f  = new_g + new_h
     action = f"load {flower} {color} {qty}"
@@ -82,7 +82,7 @@ def _try_load(engine, current, flower, color, qty, cap, pavilion_positions):
     print(f"    → generated child {sid} via {action!r} f={new_f:.1f}")
 
 
-def make_loading_mixin(warehouse_stock: list, pavilion_positions: dict):
+def make_loading_mixin(warehouse_stock: list, pavilion_positions: dict, warehouse_pos: dict):
     """Return loading mixin closed over warehouse stock and pavilion positions."""
 
     class LoadingRules:
@@ -113,6 +113,6 @@ def make_loading_mixin(warehouse_stock: list, pavilion_positions: dict):
                 if max_avail <= 0:
                     continue
                 for qty in range(1, max_avail + 1):
-                    _try_load(self, state, flower, color, qty, cap, pavilion_positions)
+                    _try_load(self, state, flower, color, qty, cap, pavilion_positions, warehouse_pos)
 
     return LoadingRules

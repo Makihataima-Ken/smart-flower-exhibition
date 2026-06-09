@@ -33,7 +33,7 @@ from utils.helpers import is_valid_position, state_hash, DIRECTIONS
 from utils.search_tree import is_closed, push_open
 
 
-def _try_move(engine, current, action, grid_cols, grid_rows, pavilion_positions):
+def _try_move(engine, current, action, grid_cols, grid_rows, pavilion_positions, warehouse_pos):
     """Attempt one movement direction and assert a child State if valid."""
     dx, dy = DIRECTIONS[action]
     new_x = current["robot_x"] + dx
@@ -50,7 +50,7 @@ def _try_move(engine, current, action, grid_cols, grid_rows, pavilion_positions)
         return  # already expanded
 
     new_g = current["g_cost"] + 1
-    new_h = compute_heuristic(new_x, new_y, new_needs, pavilion_positions)
+    new_h = compute_heuristic(new_x, new_y, new_inv, new_needs, pavilion_positions, warehouse_pos)
     new_f = new_g + new_h
     sid   = next_state_id()
     cap   = current.get("capacity", 999)
@@ -84,10 +84,10 @@ def _try_move(engine, current, action, grid_cols, grid_rows, pavilion_positions)
         active    = False,
         capacity  = cap,
     ))
-    print(f"    → generated child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
+    print(f"    -> generated child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
 
 
-def make_movement_mixin(pavilion_positions: dict):
+def make_movement_mixin(pavilion_positions: dict, warehouse_pos: dict):
     """Return a mixin with a single movement rule that tries all 4 directions."""
 
     class MovementRules:
@@ -101,7 +101,7 @@ def make_movement_mixin(pavilion_positions: dict):
         def expand_movements(self, state, cols, rows):
             """Generate child states for all valid movement directions."""
             for action in ("move_up", "move_down", "move_left", "move_right"):
-                _try_move(self, state, action, cols, rows, pavilion_positions)
+                _try_move(self, state, action, cols, rows, pavilion_positions, warehouse_pos)
             # Deactivate AFTER all directions are tried
             self.modify(state, active=False)
 

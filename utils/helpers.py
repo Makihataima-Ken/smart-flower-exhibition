@@ -3,9 +3,15 @@ utils/helpers.py
 ----------------
 Pure utility functions used by rule files and the heuristic.
 
-Design principle: keep rules thin.  Every non-trivial decision (is this
-move valid? is this load combination legal?) lives here as a testable
-helper function with a clear docstring.
+DESIGN CONSTRAINT: zero explicit if-statements and zero explicit loops.
+All branching is expressed via:
+  • dict.get()  with default values
+  • next(filter(...), default)
+  • any() / all()
+  • short-circuit  (and / or)
+  • ternary  (x if cond else y)  counts as an expression, not a statement
+  • functools.reduce
+  • comprehensions
 
 No Experta imports – these functions work on plain Python data.
 """
@@ -14,49 +20,40 @@ import json
 from typing import List, Dict, Optional, Tuple
 
 
-def _to_plain(obj):
-    """Recursively convert Experta's frozendict / frozenlist wrappers (and
-    plain dicts/lists/tuples) to standard Python dicts and lists so that
-    json.dumps can serialise them.
+# ---------------------------------------------------------------------------
+# Serialisation helper (unwrap Experta frozendict / frozenlist)
+# ---------------------------------------------------------------------------
 
-    Experta internally stores dict fields as frozendict and list fields as
-    frozenlist – both are non-JSON-serialisable.  We unwrap everything here
-    before hashing.
-    """
-    # dict-like objects (includes frozendict)
-    if hasattr(obj, 'items'):
-        return {k: _to_plain(v) for k, v in obj.items()}
-    # list-like / tuple-like objects (includes frozenlist)
-    if isinstance(obj, (list, tuple)) or hasattr(obj, '__iter__') and not isinstance(obj, str):
-        try:
-            return [_to_plain(i) for i in obj]
-        except TypeError:
-            pass
-    return obj
+def _to_plain(obj):
+    """Recursively convert Experta wrappers to standard Python types."""
+    # dict-like (includes frozendict)
+    return (
+        {k: _to_plain(v) for k, v in obj.items()}
+        if hasattr(obj, "items")
+        else (
+            [_to_plain(i) for i in obj]
+            if (isinstance(obj, (list, tuple)) or
+                (hasattr(obj, "__iter__") and not isinstance(obj, str)))
+            else obj
+        )
+    )
 
 
 # ===========================================================================
 # Movement helpers
 # ===========================================================================
 
-def is_valid_position(x: int, y: int, cols: int, rows: int) -> bool:
-    """Return True if (x, y) is inside the grid boundaries.
-
-    Args:
-        x: column index (0-based)
-        y: row index    (0-based)
-        cols: total columns
-        rows: total rows
-    """
-    return 0 <= x < cols and 0 <= y < rows
-
-
 DIRECTIONS = {
     "move_right": ( 1,  0),
     "move_left":  (-1,  0),
-    "move_down":  ( 0,  1),   # row increases downward
+    "move_down":  ( 0,  1),
     "move_up":    ( 0, -1),
 }
+
+
+def is_valid_position(x: int, y: int, cols: int, rows: int) -> bool:
+    """Return True if (x, y) is inside the grid boundaries."""
+    return 0 <= x < cols and 0 <= y < rows
 
 
 def apply_move(x: int, y: int, action: str) -> Tuple[int, int]:
@@ -70,170 +67,161 @@ def apply_move(x: int, y: int, action: str) -> Tuple[int, int]:
 # ===========================================================================
 
 def inventory_total(inventory: List[Dict]) -> int:
-    """Sum of all bouquet quantities in an inventory list."""
+    """Sum of all bouquet quantities."""
     return sum(b["quantity"] for b in inventory)
 
 
 def find_bouquet(inventory: List[Dict], flower: str, color: str) -> Optional[Dict]:
-    """Return the first matching bouquet dict in an inventory, or None."""
-    for b in inventory:
-        if b["flower"] == flower and b["color"] == color:
-            return b
-    return None
+    """Return the first matching bouquet dict, or None."""
+    return next(
+        filter(lambda b: b["flower"] == flower and b["color"] == color, inventory),
+        None,
+    )
 
 
 def add_to_inventory(inventory: List[Dict], flower: str, color: str, qty: int) -> None:
     """Add qty units of (flower, color) to inventory (mutates in place)."""
     existing = find_bouquet(inventory, flower, color)
-    if existing:
-        existing["quantity"] += qty
-    else:
+    # Branch via truthiness of existing (not an if-statement)
+    existing and existing.__setitem__("quantity", existing["quantity"] + qty) or \
         inventory.append({"flower": flower, "color": color, "quantity": qty})
 
 
 def remove_from_inventory(inventory: List[Dict], flower: str, color: str, qty: int) -> bool:
     """Remove qty units from inventory.  Returns False if not enough stock."""
     existing = find_bouquet(inventory, flower, color)
-    if existing is None or existing["quantity"] < qty:
-        return False
-    existing["quantity"] -= qty
-    if existing["quantity"] == 0:
-        inventory.remove(existing)
-    return True
+    enough   = existing is not None and existing["quantity"] >= qty
+    # Only mutate when enough; no explicit if
+    enough and existing.__setitem__("quantity", existing["quantity"] - qty)
+    enough and existing["quantity"] == 0 and inventory.remove(existing)
+    return enough
 
 
 # ===========================================================================
 # Loading constraint validation
 # ===========================================================================
 
+def _inventory_flowers(inventory: List[Dict]) -> set:
+    return {b["flower"] for b in inventory}
+
+
+def _inventory_colors(inventory: List[Dict]) -> set:
+    return {b["color"] for b in inventory}
+
+
 def loading_mode(inventory: List[Dict]) -> Optional[str]:
-    """Determine which loading mode the current inventory satisfies.
+    """Determine loading mode: 'A' (same color), 'B' (same flower), or None (empty).
 
-    MODE A – different flower types, same color.
-    MODE B – same flower type, different colors.
-    Returns 'A', 'B', or None if the inventory is empty (either mode OK).
-    Raises ValueError if the inventory is already mixed-invalid.
+    Raises ValueError when the inventory is already in an illegal mixed state.
     """
-    if not inventory:
-        return None  # empty: both modes are open
+    # Express the decision table as a lookup without if-statements
+    return (
+        None  # empty → either mode OK
+        if not inventory
+        else (
+            # Use a dict of (many_flowers, many_colors) → result
+            # Raises ValueError for the mixed case via a side-effect trick
+            {
+                (False, False): "B",   # 1 flower, 1 color → MODE B
+                (False, True):  "B",   # 1 flower, many colors → MODE B
+                (True,  False): "A",   # many flowers, 1 color → MODE A
+            }.get(
+                (
+                    len(_inventory_flowers(inventory)) > 1,
+                    len(_inventory_colors(inventory))  > 1,
+                ),
+                (_ for _ in ()).throw(ValueError("Inventory is in an invalid mixed state")),
+            )
+        )
+    )
 
-    flowers = {b["flower"] for b in inventory}
-    colors  = {b["color"]  for b in inventory}
 
-    if len(flowers) == 1:
-        return "B"  # one flower type → MODE B
-    if len(colors) == 1:
-        return "A"  # one color → MODE A
-    # multiple flowers AND multiple colors → illegal state (should not happen
-    # if validation is applied before every load)
-    raise ValueError("Inventory is in an invalid mixed state")
-
-
-def can_load(inventory: List[Dict], flower: str, color: str,
-             qty: int, capacity: int) -> Tuple[bool, str]:
+def can_load(
+    inventory: List[Dict], flower: str, color: str,
+    qty: int, capacity: int,
+) -> Tuple[bool, str]:
     """Check whether loading qty units of (flower, color) is legal.
 
-    Returns (True, "") on success or (False, reason) on failure.
+    Returns (True, '') on success or (False, reason) on failure.
+    Uses a chain of guard expressions instead of if-blocks.
     """
-    # 1. Capacity check
-    if inventory_total(inventory) + qty > capacity:
-        return False, "exceeds capacity"
-
-    # 2. Determine current loading mode
+    # 1. capacity guard
+    over_cap = inventory_total(inventory) + qty > capacity
+    # 2. mode guard (catch ValueError from loading_mode)
     try:
         mode = loading_mode(inventory)
+        bad_mode = False
     except ValueError:
-        return False, "inventory already invalid"
+        mode, bad_mode = None, True
 
-    if mode is None:
-        return True, ""   # empty inventory: any single item is fine
+    # 3. mode-specific color/flower checks (evaluated only when mode is set)
+    mode_ok, mode_reason = (
+        (True, "")
+        if mode is None
+        else (
+            (color == inventory[0]["color"],
+             f"Mode A: color must be {inventory[0]['color']!r}")
+            if mode == "A"
+            else
+            (flower == inventory[0]["flower"],
+             f"Mode B: flower must be {inventory[0]['flower']!r}")
+        )
+    )
 
-    if mode == "A":
-        # All items must share the same color → new item must match that color
-        existing_color = inventory[0]["color"]
-        if color != existing_color:
-            return False, f"Mode A: color must be {existing_color!r}"
-        # New flower type must differ from all existing types
-        existing_flowers = {b["flower"] for b in inventory}
-        if flower in existing_flowers:
-            # Same flower+color → just adding quantity to existing, that's fine
-            pass
-        return True, ""
-
-    if mode == "B":
-        # All items must share the same flower type → new item must match
-        existing_flower = inventory[0]["flower"]
-        if flower != existing_flower:
-            return False, f"Mode B: flower must be {existing_flower!r}"
-        # New color must differ from all existing colors (or same → add qty)
-        return True, ""
-
-    return False, "unknown mode"
+    # Accumulate first failing reason via short-circuit chain
+    reason = (
+        "exceeds capacity"          if over_cap  else
+        "inventory already invalid" if bad_mode   else
+        mode_reason                 if not mode_ok else
+        ""
+    )
+    return (reason == "", reason)
 
 
 # ===========================================================================
 # Unloading validation
 # ===========================================================================
 
-def can_unload(inventory: List[Dict], needs: List[Dict],
-               flower: str, color: str, qty: int) -> Tuple[bool, str]:
-    """Check whether unloading qty units of (flower, color) at a pavilion is legal.
+def can_unload(
+    inventory: List[Dict], needs: List[Dict],
+    flower: str, color: str, qty: int,
+) -> Tuple[bool, str]:
+    """Check whether unloading qty units at a pavilion is legal."""
+    inv_item  = find_bouquet(inventory, flower, color)
+    need_item = find_bouquet(needs,     flower, color)
 
-    Args:
-        inventory: robot's current inventory
-        needs:     remaining bouquet needs of the pavilion
-        flower, color, qty: the bouquet being unloaded
-    """
-    # Must have the item in inventory
-    inv_item = find_bouquet(inventory, flower, color)
-    if inv_item is None or inv_item["quantity"] < qty:
-        return False, "not enough in inventory"
-
-    # Pavilion must actually need this item
-    need_item = find_bouquet(needs, flower, color)
-    if need_item is None or need_item["quantity"] <= 0:
-        return False, "pavilion does not need this bouquet"
-
-    # Partial unloading is allowed → qty <= need_item["quantity"]
-    if qty > need_item["quantity"]:
-        return False, "delivering more than needed"
-
-    return True, ""
+    reason = (
+        "not enough in inventory"         if (inv_item is None or inv_item["quantity"] < qty)  else
+        "pavilion does not need this bouquet" if (need_item is None or need_item["quantity"] <= 0) else
+        "delivering more than needed"     if qty > need_item["quantity"]                        else
+        ""
+    )
+    return (reason == "", reason)
 
 
 # ===========================================================================
 # State hashing (duplicate detection)
 # ===========================================================================
 
-def state_hash(robot_x: int, robot_y: int,
-               inventory: List[Dict],
-               needs: Dict[str, List[Dict]]) -> str:
-    """Produce a deterministic string hash for a search state.
-
-    The hash captures exactly the information that distinguishes two states:
-    robot position, sorted inventory, and sorted remaining needs.
-    Two states with the same hash are considered duplicates.
-    """
-    # Convert frozendict/frozenset wrappers added by Experta to plain Python
+def state_hash(
+    robot_x: int, robot_y: int,
+    inventory: List[Dict],
+    needs: Dict[str, List[Dict]],
+) -> str:
+    """Produce a deterministic string hash for a search state."""
     plain_inv   = _to_plain(list(inventory))
     plain_needs = _to_plain(dict(needs))
 
-    # Sort inventory for canonical form
     sorted_inv = sorted(plain_inv, key=lambda b: (b["flower"], b["color"]))
-
-    # Sort needs dict and each needs list
     sorted_needs = {
         pid: sorted(blist, key=lambda b: (b["flower"], b["color"]))
         for pid, blist in sorted(plain_needs.items())
     }
 
-    payload = {
-        "rx": robot_x,
-        "ry": robot_y,
-        "inv": sorted_inv,
-        "needs": sorted_needs,
-    }
-    return json.dumps(payload, sort_keys=True)
+    return json.dumps(
+        {"rx": robot_x, "ry": robot_y, "inv": sorted_inv, "needs": sorted_needs},
+        sort_keys=True,
+    )
 
 
 # ===========================================================================
@@ -241,14 +229,15 @@ def state_hash(robot_x: int, robot_y: int,
 # ===========================================================================
 
 def is_goal(inventory: List[Dict], needs: Dict[str, List[Dict]]) -> bool:
-    """Return True when all pavilion needs are satisfied and robot is empty."""
-    if inventory:
-        return False
-    for blist in needs.values():
-        for b in blist:
-            if b["quantity"] > 0:
-                return False
-    return True
+    """True when all pavilion needs are satisfied and robot inventory is empty."""
+    return (
+        not inventory
+        and not any(
+            b["quantity"] > 0
+            for blist in needs.values()
+            for b in blist
+        )
+    )
 
 
 # ===========================================================================
@@ -264,5 +253,4 @@ def pavilions_still_needing(needs: Dict[str, List[Dict]]) -> List[str]:
 
 
 def manhattan_distance(x1: int, y1: int, x2: int, y2: int) -> int:
-    """Standard Manhattan distance between two grid cells."""
     return abs(x1 - x2) + abs(y1 - y2)
