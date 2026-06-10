@@ -215,10 +215,9 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         @Rule(AS.node << ActiveNode(), Warehouse(x=MATCH.rx, y=MATCH.ry), NOT(Goal()), salience=20)
         def expand_loads(self, node, rx, ry):
             (node["robot_x"] == rx and node["robot_y"] == ry) and [
-                self._try_load(node, item["flower"], item["color"], qty)
-                for item in warehouse["stock"]
-                if item["quantity"] > 0
-                for qty in range(1, item["quantity"] + 1)
+                self._try_load(node, item["flower"], item["color"], item["quantity"])
+                for pavilion_needs in node["needs"].values()
+                for item in pavilion_needs
             ]
 
         def _try_load(self, node, flower, color, qty):
@@ -343,8 +342,7 @@ def run_search(scenario: dict) -> None:
 
     engine.declare(Grid(rows=grid["rows"], cols=grid["cols"]))
     engine.declare(Warehouse(
-        x=warehouse["x"], y=warehouse["y"],
-        stock=copy.deepcopy(warehouse["stock"]),
+        x=warehouse["x"], y=warehouse["y"]
     ))
     [
         engine.declare(Pavilion(

@@ -6,15 +6,7 @@
 
   "warehouse": {
     "x": 5,
-    "y": 5,
-    "stock": [
-      { "flower": "Rose",   "color": "Red",    "quantity": 2 },
-      { "flower": "Rose",   "color": "White",  "quantity": 1 },
-      { "flower": "Rose",   "color": "Yellow",  "quantity": 1 },
-      { "flower": "Tulip",  "color": "Red",    "quantity": 3 },
-      { "flower": "Tulip",  "color": "Pink",    "quantity": 1 },
-      { "flower": "Orchid", "color": "Red", "quantity": 1 }
-    ]
+    "y": 5
   },
 
   "robot_start": { "x": 5, "y": 5 },

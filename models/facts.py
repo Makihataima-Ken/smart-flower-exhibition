@@ -22,12 +22,9 @@ class Warehouse(Fact):
     Fields:
         x (int): column index
         y (int): row index
-        stock (list[dict]): available bouquets
-            Each entry: {"flower": str, "color": str, "quantity": int}
     """
     x    = Field(int,  mandatory=True)
     y    = Field(int,  mandatory=True)
-    stock = Field(list, mandatory=True)
 
 
 class Robot(Fact):

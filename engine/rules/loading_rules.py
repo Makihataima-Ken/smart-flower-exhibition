@@ -82,7 +82,7 @@ def _try_load(engine, current, flower, color, qty, cap, pavilion_positions, ware
     print(f"    → generated child {sid} via {action!r} f={new_f:.1f}")
 
 
-def make_loading_mixin(warehouse_stock: list, pavilion_positions: dict, warehouse_pos: dict):
+def make_loading_mixin(pavilion_positions: dict, warehouse_pos: dict):
     """Return loading mixin closed over warehouse stock and pavilion positions."""
 
     class LoadingRules:
@@ -106,13 +106,8 @@ def make_loading_mixin(warehouse_stock: list, pavilion_positions: dict, warehous
             generation rules have fired.  This ensures movement children are
             also generated for warehouse cells.
             """
-            for stock_item in warehouse_stock:
-                flower    = stock_item["flower"]
-                color     = stock_item["color"]
-                max_avail = stock_item["quantity"]
-                if max_avail <= 0:
-                    continue
-                for qty in range(1, max_avail + 1):
-                    _try_load(self, state, flower, color, qty, cap, pavilion_positions, warehouse_pos)
+            for pavillion_needs in state["needs"].values():
+                for item in pavillion_needs:
+                    _try_load(self, state, item["flower"], item["color"], item["quantity"], cap, pavilion_positions, warehouse_pos)
 
     return LoadingRules
