@@ -203,6 +203,65 @@ def can_unload(
 # State hashing (duplicate detection)
 # ===========================================================================
 
+def _normalize_inventory(inventory: List[Dict]):
+    """
+    Canonical inventory representation.
+
+    Merges duplicate flower/color entries:
+        Rose Red x1
+        Rose Red x2
+
+    becomes:
+
+        Rose Red x3
+
+    Removes zero quantities.
+    """
+
+    merged = {}
+
+    for item in inventory:
+
+        qty = item["quantity"]
+
+        if qty <= 0:
+            continue
+
+        key = (item["flower"],item["color"],)
+
+        merged[key] = merged.get(key, 0) + qty
+
+    return tuple(sorted((flower,color,qty,)for (flower, color), qty in merged.items()))
+
+
+def _normalize_needs(needs: Dict[str, List[Dict]]):
+    """
+    Canonical needs representation.
+
+    Removes:
+      - zero quantity bouquets
+      - empty pavilion entries
+
+    Sorts everything deterministically.
+    """
+
+    normalized = []
+
+    for pid, bouquets in needs.items():
+
+        cleaned = [
+            (item["flower"],item["color"],item["quantity"])
+            for item in bouquets
+            if item["quantity"] > 0
+        ]
+
+        if not cleaned:
+            continue
+
+        normalized.append((pid,tuple(sorted(cleaned)),))
+
+    return tuple(sorted(normalized))
+
 def state_hash(
     robot_x: int, robot_y: int,
     inventory: List[Dict],
@@ -212,11 +271,8 @@ def state_hash(
     plain_inv   = _to_plain(list(inventory))
     plain_needs = _to_plain(dict(needs))
 
-    sorted_inv = sorted(plain_inv, key=lambda b: (b["flower"], b["color"]))
-    sorted_needs = {
-        pid: sorted(blist, key=lambda b: (b["flower"], b["color"]))
-        for pid, blist in sorted(plain_needs.items())
-    }
+    sorted_inv =  _normalize_inventory(plain_inv)
+    sorted_needs = _normalize_needs(plain_needs)
 
     return json.dumps(
         {"rx": robot_x, "ry": robot_y, "inv": sorted_inv, "needs": sorted_needs},

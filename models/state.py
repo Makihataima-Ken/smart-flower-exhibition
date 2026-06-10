@@ -101,3 +101,6 @@ def clone_needs(needs) -> Dict[str, List[Dict]]:
         ]
         for pid, blist in needs.items()
     }
+
+def get_state(state_id):
+    return STATE_REGISTRY.get(state_id)

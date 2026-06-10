@@ -28,7 +28,7 @@ from models.facts import (
     Grid, Warehouse, Pavilion, State, Goal, NoSolution,
 )
 from models.state import (
-    StateNode, next_state_id, register_state, STATE_REGISTRY,
+    StateNode, next_state_id, register_state, STATE_REGISTRY, get_state
 )
 from engine.heuristic import compute_heuristic
 from utils.helpers import (
@@ -63,7 +63,8 @@ class ReadyToSelect(Fact):
 def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
                 pavilion_positions, cap):
     sh = state_hash(new_x, new_y, new_inv, new_needs)
-    is_closed(sh) and None  # skip — evaluated below in the caller
+    if is_closed(sh):
+        return None  # skip — evaluated below in the caller
     new_g = current["g_cost"] + 1
     new_h = compute_heuristic(new_x, new_y, new_needs, pavilion_positions)
     new_f = new_g + new_h
@@ -77,14 +78,6 @@ def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
     ))
     push_open(new_f, sid)
 
-    # Store as a passive State fact for path-reconstruction
-    engine.declare(State(
-        state_id=sid, parent_id=current["state_id"], action=action,
-        robot_x=new_x, robot_y=new_y,
-        inventory=new_inv, needs=new_needs,
-        g_cost=new_g, h_cost=new_h, f_cost=new_f,
-        active=False, capacity=cap,
-    ))
     print(f"    → child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
     return sid
 
@@ -131,6 +124,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             )
             print_solution(sid)
             print_search_tree()
+            self.retract(node)
 
         # ================================================================
         # CONSTRAINT CHECKS  (salience 150)
@@ -172,11 +166,10 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             pid     = pos_to_pid.get((rx, ry))
             pav_needs = pid and node["needs"].get(pid)
             pav_needs and [
-                self._try_unload(node, pid, inv_item, need_item, qty)
+                self._try_unload(node, pid, inv_item, need_item,min(inv_item["quantity"],need_item["quantity"],),)
                 for inv_item in node["inventory"]
                 for need_item in [find_bouquet(list(pav_needs), inv_item["flower"], inv_item["color"])]
                 if need_item is not None and need_item["quantity"] > 0
-                for qty in range(1, min(inv_item["quantity"], need_item["quantity"]) + 1)
             ]
 
         def _try_unload(self, node, pid, inv_item, need_item, qty):
@@ -199,11 +192,43 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # ================================================================
         @Rule(AS.node << State(active=True), Warehouse(x=MATCH.rx, y=MATCH.ry), NOT(Goal()), salience=20)
         def expand_loads(self, node, rx, ry):
-            (node["robot_x"] == rx and node["robot_y"] == ry) and [
-                self._try_load(node, item["flower"], item["color"], item["quantity"])
-                for pavilion_needs in node["needs"].values()
-                for item in pavilion_needs
-            ]
+            if node["robot_x"] != rx or node["robot_y"] != ry:
+                return
+
+            current_load = inventory_total(node["inventory"])
+            remaining_capacity = node["capacity"] - current_load
+
+            if remaining_capacity <= 0:
+                return
+
+            aggregated = {}
+
+            for pavilion_needs in node["needs"].values():
+                for item in pavilion_needs:
+
+                    key = (
+                        item["flower"],
+                        item["color"],
+                    )
+
+                    aggregated[key] = (
+                        aggregated.get(key, 0)
+                        + item["quantity"]
+                    )
+
+            for (flower, color), qty_needed in aggregated.items():
+
+                qty = min(
+                    qty_needed,
+                    remaining_capacity,
+                )
+
+                qty > 0 and self._try_load(
+                    node,
+                    flower,
+                    color,
+                    qty,
+                )
 
         def _try_load(self, node, flower, color, qty):
             new_inv   = [{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in node["inventory"]]
@@ -226,18 +251,19 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
                 self._try_move(node, action)
                 for action in DIRECTIONS
             ]
-            self.modify(node, active=False)
+            self.retract(node)
             self.declare(ExpandDone())
 
         def _try_move(self, node, action):
             dx, dy = DIRECTIONS[action]
             new_x  = node["robot_x"] + dx
             new_y  = node["robot_y"] + dy
-            valid  = is_valid_position(new_x, new_y, grid_info["cols"], grid_info["rows"])
+            if not is_valid_position(new_x, new_y, grid_info["cols"], grid_info["rows"]):return
+            parent = (get_state(node["parent_id"]) if node["parent_id"] is not None else None)
+            if ( parent is not None and new_x == parent.robot_x and new_y == parent.robot_y): return
             new_inv   = [{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in node["inventory"]]
             new_needs = {p:[{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in blist] for p,blist in node["needs"].items()}
-            sh = valid and state_hash(new_x, new_y, new_inv, new_needs)
-            valid and not is_closed(sh) and _make_child(
+            _make_child(
                 self, node, action, new_x, new_y,
                 new_inv, new_needs, pavilion_positions, node["capacity"],
             )
@@ -263,28 +289,21 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
 
         def _try_activate(self, best_id):
             st = STATE_REGISTRY.get(best_id)
-            sh = st and state_hash(st.robot_x, st.robot_y, st.inventory, st.needs)
-            already_closed = sh and is_closed(sh)
-            # Closed/missing → skip; do_select won't re-fire automatically
-            # so we must call _select_and_activate again manually (no loop — tail recursion)
-            already_closed and self._select_and_activate()
-            already_closed or (st is None) or self._activate_node(best_id, sh, st)
+            if st is None:
+                self._select_and_activate()
+                return
+            sh = state_hash(st.robot_x, st.robot_y, st.inventory, st.needs)
+            if is_closed(sh):
+                self._select_and_activate()
+                return
+            self._activate_node(best_id, sh, st)
 
         def _activate_node(self, best_id, sh, st):
             add_closed(sh)
             print(f"\n[SELECT] {best_id}  g={st.g_cost} h={st.h_cost:.1f} f={st.f_cost:.1f}"
                   f"  pos=({st.robot_x},{st.robot_y})")
-            state_fact = next(
-                (
-                    fact for fact in self.facts.values()
-                    if isinstance(fact, State) and fact["state_id"] == best_id
-                ),
-                None,
-            )
-            if state_fact is not None:
-                self.modify(state_fact, active=True)
-            else:
-                self.declare(State(
+            
+            self.declare(State(
                     state_id=best_id,
                     parent_id=st.parent_id,
                     action=st.action,
