@@ -17,3 +17,6 @@ pyproject.toml
 # extension-specific ignores
 smart-flower-exhibition-output.md
 smart-flower-exhibition-output.txt
+
+
+doc/
