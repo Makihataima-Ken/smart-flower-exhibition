@@ -48,13 +48,13 @@ def _try_unload(engine, current, pavilion_id, flower, color, qty, pavilion_posit
         return
 
     new_g  = current["g_cost"] + 1
+    sid    = next_state_id()
+    cap    = current.get("capacity", 999)
     new_h  = compute_heuristic(
-        current["robot_x"], current["robot_y"], new_inv, new_needs, pavilion_positions, warehouse_pos
+        current["robot_x"], current["robot_y"], new_inv, new_needs, pavilion_positions, warehouse_pos, cap
     )
     new_f  = new_g + new_h
     action = f"unload {pavilion_id} {flower} {color} {qty}"
-    sid    = next_state_id()
-    cap    = current.get("capacity", 999)
 
     register_state(StateNode(
         state_id  = sid,

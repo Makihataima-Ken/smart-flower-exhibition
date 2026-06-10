@@ -50,10 +50,10 @@ def _try_move(engine, current, action, grid_cols, grid_rows, pavilion_positions,
         return  # already expanded
 
     new_g = current["g_cost"] + 1
-    new_h = compute_heuristic(new_x, new_y, new_inv, new_needs, pavilion_positions, warehouse_pos)
-    new_f = new_g + new_h
     sid   = next_state_id()
     cap   = current.get("capacity", 999)
+    new_h = compute_heuristic(new_x, new_y, new_inv, new_needs, pavilion_positions, warehouse_pos, cap)
+    new_f = new_g + new_h
 
     node = StateNode(
         state_id  = sid,

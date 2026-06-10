@@ -61,12 +61,12 @@ class ReadyToSelect(Fact):
 # ---------------------------------------------------------------------------
 
 def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
-                pavilion_positions, cap):
+                pavilion_positions, cap, warehouse_pos):
     sh = state_hash(new_x, new_y, new_inv, new_needs)
     if is_closed(sh):
         return None  # skip — evaluated below in the caller
     new_g = current["g_cost"] + 1
-    new_h = compute_heuristic(new_x, new_y, new_needs, pavilion_positions)
+    new_h = compute_heuristic(new_x, new_y, new_inv, new_needs, pavilion_positions, warehouse_pos, cap)
     new_f = new_g + new_h
     sid   = next_state_id()
 
@@ -184,7 +184,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
                 self, node,
                 f"unload {pid} {inv_item['flower']} {inv_item['color']} {qty}",
                 node["robot_x"], node["robot_y"],
-                new_inv, new_needs, pavilion_positions, node["capacity"],
+                new_inv, new_needs, pavilion_positions, node["capacity"], wh_info,
             )
 
         # ================================================================
@@ -239,7 +239,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             ok and not is_closed(sh) and _make_child(
                 self, node, f"load {flower} {color} {qty}",
                 node["robot_x"], node["robot_y"],
-                new_inv, new_needs, pavilion_positions, node["capacity"],
+                new_inv, new_needs, pavilion_positions, node["capacity"], wh_info,
             )
 
         # ================================================================
@@ -265,7 +265,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             new_needs = {p:[{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in blist] for p,blist in node["needs"].items()}
             _make_child(
                 self, node, action, new_x, new_y,
-                new_inv, new_needs, pavilion_positions, node["capacity"],
+                new_inv, new_needs, pavilion_positions, node["capacity"], wh_info,
             )
 
         # ================================================================
@@ -342,6 +342,8 @@ def run_search(scenario: dict) -> None:
     pavilions   = scenario["pavilions"]
     robot_start = scenario["robot_start"]
     capacity    = scenario["robot_capacity"]
+    
+    wh_info    = {"x": warehouse["x"], "y": warehouse["y"]}
 
     pavilion_positions = {
         p["pavilion_id"]: {"x": p["x"], "y": p["y"]}
@@ -370,7 +372,7 @@ def run_search(scenario: dict) -> None:
 
     rx0, ry0 = robot_start["x"], robot_start["y"]
     inv0     = []
-    h0       = compute_heuristic(rx0, ry0, initial_needs, pavilion_positions)
+    h0       = compute_heuristic(rx0, ry0, inv0, initial_needs, pavilion_positions, wh_info, capacity)
     root_id  = next_state_id()
 
     register_state(StateNode(

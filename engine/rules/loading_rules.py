@@ -45,7 +45,7 @@ def _try_load(engine, current, flower, color, qty, cap, pavilion_positions, ware
 
     new_g  = current["g_cost"] + 1
     new_h  = compute_heuristic(
-        current["robot_x"], current["robot_y"], new_inv, new_needs, pavilion_positions, warehouse_pos
+        current["robot_x"], current["robot_y"], new_inv, new_needs, pavilion_positions, warehouse_pos, cap
     )
     new_f  = new_g + new_h
     action = f"load {flower} {color} {qty}"
