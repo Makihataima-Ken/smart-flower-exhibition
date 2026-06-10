@@ -22,7 +22,7 @@ try:
 except (ImportError, AttributeError):
     pass
 
-from experta import KnowledgeEngine, Rule, Fact, Field, MATCH, AS, NOT
+from experta import KnowledgeEngine, Rule, Fact, MATCH, AS, NOT
 
 from models.facts import (
     Grid, Warehouse, Pavilion, State, Goal, NoSolution,
@@ -37,7 +37,7 @@ from utils.helpers import (
     can_load, can_unload, is_valid_position, DIRECTIONS,
 )
 from utils.search_tree import (
-    reset_search_structures, add_closed, pop_open, is_closed, push_open,
+    reset_search_structures, pop_open, push_open, should_expand, BEST_G
 )
 from utils.printer import print_grid, print_solution, print_search_tree
 
@@ -63,9 +63,11 @@ class ReadyToSelect(Fact):
 def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
                 pavilion_positions, cap, warehouse_pos):
     sh = state_hash(new_x, new_y, new_inv, new_needs)
-    if is_closed(sh):
-        return None  # skip — evaluated below in the caller
+    
     new_g = current["g_cost"] + 1
+
+    if not should_expand(sh, new_g):
+        return
     new_h = compute_heuristic(new_x, new_y, new_inv, new_needs, pavilion_positions, warehouse_pos, cap)
     new_f = new_g + new_h
     sid   = next_state_id()
@@ -165,12 +167,17 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             rx, ry  = node["robot_x"], node["robot_y"]
             pid     = pos_to_pid.get((rx, ry))
             pav_needs = pid and node["needs"].get(pid)
-            pav_needs and [
-                self._try_unload(node, pid, inv_item, need_item,min(inv_item["quantity"],need_item["quantity"],),)
-                for inv_item in node["inventory"]
-                for need_item in [find_bouquet(list(pav_needs), inv_item["flower"], inv_item["color"])]
-                if need_item is not None and need_item["quantity"] > 0
-            ]
+            if not pav_needs:
+                return
+            for inv_item in node["inventory"]:
+                if inv_item["quantity"] <= 0:
+                    continue
+                need_item = find_bouquet(list(pav_needs), inv_item["flower"], inv_item["color"])
+                if need_item is None or need_item["quantity"] <= 0:
+                    continue
+                max_qty = min(inv_item["quantity"], need_item["quantity"])
+                # for qty in range(1, max_qty + 1):
+                self._try_unload(node, pid, inv_item, need_item, max_qty)
 
         def _try_unload(self, node, pid, inv_item, need_item, qty):
             new_inv   = [{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in node["inventory"]]
@@ -179,8 +186,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             ok and remove_from_inventory(new_inv, inv_item["flower"], inv_item["color"], qty)
             ne = ok and find_bouquet(new_needs[pid], inv_item["flower"], inv_item["color"])
             ne and ne.__setitem__("quantity", ne["quantity"] - qty)
-            sh = ok and state_hash(node["robot_x"], node["robot_y"], new_inv, new_needs)
-            ok and not is_closed(sh) and _make_child(
+            ok and _make_child(
                 self, node,
                 f"unload {pid} {inv_item['flower']} {inv_item['color']} {qty}",
                 node["robot_x"], node["robot_y"],
@@ -201,42 +207,22 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             if remaining_capacity <= 0:
                 return
 
-            aggregated = {}
-
+            # Refined loading: iterate per pavilion, per need
             for pavilion_needs in node["needs"].values():
                 for item in pavilion_needs:
-
-                    key = (
-                        item["flower"],
-                        item["color"],
-                    )
-
-                    aggregated[key] = (
-                        aggregated.get(key, 0)
-                        + item["quantity"]
-                    )
-
-            for (flower, color), qty_needed in aggregated.items():
-
-                qty = min(
-                    qty_needed,
-                    remaining_capacity,
-                )
-
-                qty > 0 and self._try_load(
-                    node,
-                    flower,
-                    color,
-                    qty,
-                )
+                    needed_qty = item["quantity"]
+                    if needed_qty <= 0:
+                        continue
+                    qty = min(needed_qty, remaining_capacity)
+                    if qty > 0:
+                        self._try_load( node, item["flower"], item["color"], qty)
 
         def _try_load(self, node, flower, color, qty):
             new_inv   = [{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in node["inventory"]]
             new_needs = {p:[{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in blist] for p,blist in node["needs"].items()}
             ok, _ = can_load(new_inv, flower, color, qty, node["capacity"])
             ok and add_to_inventory(new_inv, flower, color, qty)
-            sh = ok and state_hash(node["robot_x"], node["robot_y"], new_inv, new_needs)
-            ok and not is_closed(sh) and _make_child(
+            ok and _make_child(
                 self, node, f"load {flower} {color} {qty}",
                 node["robot_x"], node["robot_y"],
                 new_inv, new_needs, pavilion_positions, node["capacity"], wh_info,
@@ -259,8 +245,6 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             new_x  = node["robot_x"] + dx
             new_y  = node["robot_y"] + dy
             if not is_valid_position(new_x, new_y, grid_info["cols"], grid_info["rows"]):return
-            parent = (get_state(node["parent_id"]) if node["parent_id"] is not None else None)
-            if ( parent is not None and new_x == parent.robot_x and new_y == parent.robot_y): return
             new_inv   = [{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in node["inventory"]]
             new_needs = {p:[{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in blist] for p,blist in node["needs"].items()}
             _make_child(
@@ -292,14 +276,17 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             if st is None:
                 self._select_and_activate()
                 return
-            sh = state_hash(st.robot_x, st.robot_y, st.inventory, st.needs)
-            if is_closed(sh):
+            sh = state_hash(st.robot_x,st.robot_y,st.inventory,st.needs,)
+
+            best_g = BEST_G.get(sh)
+
+            if best_g is not None and st.g_cost > best_g:
                 self._select_and_activate()
                 return
-            self._activate_node(best_id, sh, st)
+            self._activate_node(best_id, st)
 
-        def _activate_node(self, best_id, sh, st):
-            add_closed(sh)
+        def _activate_node(self, best_id, st):
+            
             print(f"\n[SELECT] {best_id}  g={st.g_cost} h={st.h_cost:.1f} f={st.f_cost:.1f}"
                   f"  pos=({st.robot_x},{st.robot_y})")
             
@@ -381,6 +368,10 @@ def run_search(scenario: dict) -> None:
         inventory=inv0, needs=initial_needs,
         g_cost=0, h_cost=h0, f_cost=h0,
     ))
+    
+    root_hash = state_hash( rx0, ry0, inv0, initial_needs)
+    should_expand(root_hash, 0)
+    
     engine.declare(State(
         state_id=root_id, parent_id=None, action="start",
         robot_x=rx0, robot_y=ry0,

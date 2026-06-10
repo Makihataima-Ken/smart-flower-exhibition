@@ -14,7 +14,7 @@ from typing import Optional, Set
 _open_heap: list    = []
 _open_set:  Set[str] = set()
 _counter            = [0]
-_closed:    Set[str] = set()
+BEST_G= {}
 
 
 def push_open(f_cost: float, state_id: str) -> None:
@@ -24,24 +24,14 @@ def push_open(f_cost: float, state_id: str) -> None:
 
 
 def pop_open() -> Optional[str]:
-    """Pop the state with the lowest f_cost using lazy deletion.
-
-    Uses next(filter(...)) instead of a while-loop.
-    """
-    def _pop_one():
-        """Pop one entry and return its state_id if still in open_set, else None."""
-        entry = _open_heap and heapq.heappop(_open_heap)
-        return entry and _open_set.discard(entry[2]) or entry[2] if entry and entry[2] in _open_set else None
-
-    # Generator that keeps popping until we find a live entry or exhaust the heap
-    live = next(
-        filter(
-            lambda sid: sid is not None,
-            (_extract_live() for _ in iter(lambda: _open_heap, [])),
-        ),
-        None,
-    )
-    return live
+    """Pop the state with the lowest f_cost using lazy deletion."""
+    while _open_heap:
+        entry = heapq.heappop(_open_heap)
+        state_id = entry[2]
+        if state_id in _open_set:
+            _open_set.discard(state_id)
+            return state_id
+    return None
 
 
 def _extract_live() -> Optional[str]:
@@ -65,22 +55,30 @@ def open_is_empty() -> bool:
 def remove_from_open(state_id: str) -> None:
     _open_set.discard(state_id)
 
-
-def add_closed(state_hash: str) -> None:
-    _closed.add(state_hash)
-
-
-def is_closed(state_hash: str) -> bool:
-    return state_hash in _closed
-
-
-def closed_count() -> int:
-    return len(_closed)
-
-
 def reset_search_structures() -> None:
-    global _open_heap, _open_set, _closed
+    global _open_heap, _open_set, BEST_G
     _open_heap = []
     _open_set  = set()
-    _closed    = set()
     _counter[0] = 0
+    BEST_G.clear()
+
+
+def should_expand(state_hash_value: str, g_cost: int) -> bool:
+    """
+    Keep only the cheapest path discovered for a state.
+
+    Returns True if this path is better than any
+    previously discovered path.
+    """
+
+    previous_g = BEST_G.get(state_hash_value)
+
+    if previous_g is None:
+        BEST_G[state_hash_value] = g_cost
+        return True
+
+    if g_cost < previous_g:
+        BEST_G[state_hash_value] = g_cost
+        return True
+
+    return False
