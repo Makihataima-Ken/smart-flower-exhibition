@@ -40,6 +40,7 @@ from utils.search_tree import (
     reset_search_structures, pop_open, push_open, should_expand, BEST_G
 )
 from utils.printer import print_grid, print_solution, print_search_tree
+from engine.rules.constraints_rules import make_constraints_mixin
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +100,9 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
     grid_info  = {"rows": grid["rows"], "cols": grid["cols"]}
     wh_info    = {"x": warehouse["x"], "y": warehouse["y"]}
 
-    class FlowerDeliveryEngine(KnowledgeEngine):
+    ConstraintRulesMixin = make_constraints_mixin()
+
+    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin):
 
         # ================================================================
         # GOAL DETECTION  (salience 200)
@@ -129,35 +132,10 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             self.retract(node)
 
         # ================================================================
-        # CONSTRAINT CHECKS  (salience 150)
+        # CONSTRAINT CHECKS  (salience 150)  —  now imported from
+        # engine/rules/constraints_rules.py via ConstraintRulesMixin.
+        # They are mixed in at class creation, so they fire automatically.
         # ================================================================
-        @Rule(AS.node << State(active=True), NOT(Goal()), salience=150)
-        def check_out_of_bounds(self, node):
-            rx, ry = node["robot_x"], node["robot_y"]
-            out    = rx < 0 or rx >= grid_info["cols"] or ry < 0 or ry >= grid_info["rows"]
-            out and (
-                print(f"  [OOB] retract {node['state_id']}"),
-                self.retract(node),
-            )
-
-        @Rule(AS.node << State(active=True), NOT(Goal()), salience=150)
-        def check_capacity(self, node):
-            over = inventory_total(node["inventory"]) > node["capacity"]
-            over and (
-                print(f"  [CAP] retract {node['state_id']}"),
-                self.retract(node),
-            )
-
-        @Rule(AS.node << State(active=True), NOT(Goal()), salience=150)
-        def check_load_mix(self, node):
-            inv     = node["inventory"]
-            flowers = {b["flower"] for b in inv}
-            colors  = {b["color"]  for b in inv}
-            mixed   = len(inv) >= 2 and len(flowers) > 1 and len(colors) > 1
-            mixed and (
-                print(f"  [MIX] retract {node['state_id']}"),
-                self.retract(node),
-            )
 
         # ================================================================
         # UNLOAD GENERATION  (salience 30)

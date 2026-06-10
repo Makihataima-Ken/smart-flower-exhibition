@@ -14,13 +14,22 @@ from typing import Optional, Set
 _open_heap: list    = []
 _open_set:  Set[str] = set()
 _counter            = [0]
-BEST_G= {}
+BEST_G: dict[str, int] = {}
+OPEN_G:  dict[str, int] = {}
 
 
 def push_open(f_cost: float, state_id: str) -> None:
     _counter[0] += 1
     heapq.heappush(_open_heap, (f_cost, _counter[0], state_id))
     _open_set.add(state_id)
+
+
+def push_open_with_g(f_cost: float, state_id: str, g_cost: int) -> None:
+    existing_g = OPEN_G.get(state_id)
+    if existing_g is not None and g_cost >= existing_g:
+        return
+    OPEN_G[state_id] = g_cost
+    push_open(f_cost, state_id)
 
 
 def pop_open() -> Optional[str]:
@@ -30,6 +39,7 @@ def pop_open() -> Optional[str]:
         state_id = entry[2]
         if state_id in _open_set:
             _open_set.discard(state_id)
+            OPEN_G.pop(state_id, None)
             return state_id
     return None
 
@@ -56,11 +66,12 @@ def remove_from_open(state_id: str) -> None:
     _open_set.discard(state_id)
 
 def reset_search_structures() -> None:
-    global _open_heap, _open_set, BEST_G
+    global _open_heap, _open_set, BEST_G, OPEN_G
     _open_heap = []
     _open_set  = set()
     _counter[0] = 0
     BEST_G.clear()
+    OPEN_G.clear()
 
 
 def should_expand(state_hash_value: str, g_cost: int) -> bool:
