@@ -3,15 +3,15 @@ engine/knowledge_engine_pure.py
 --------------------------------
 Pure-Experta A* search — zero Python if/for/while statements.
 
-ARCHITECTURE (clean, no state flipping):
+ARCHITECTURE (clean, active-state selection):
 
-  ActiveNode fact carries the full search-node data for the currently
-  expanding node.  Generation rules fire on ActiveNode.  The movement
-  rule (last, salience 10) retracts ActiveNode and asserts ExpandDone.
-  do_select fires on ExpandDone (or at the very start on ReadyToSelect).
+  Selected search nodes are activated via State(active=True).  Generation
+  rules fire on the active state.  The movement rule (last, salience 10)
+  deactivates the state and asserts ExpandDone.  do_select fires on
+  ExpandDone (or at the very start on ReadyToSelect).
 
-  This eliminates the active=True/False flag-flipping that caused
-  spurious RETE activations.
+  This keeps one focused active node while preserving State facts for
+  path reconstruction.
 """
 
 import copy
@@ -45,21 +45,6 @@ from utils.printer import print_grid, print_solution, print_search_tree
 # ---------------------------------------------------------------------------
 # Control facts (defined here to avoid circular imports)
 # ---------------------------------------------------------------------------
-
-class ActiveNode(Fact):
-    """The search node currently being expanded."""
-    state_id  = Field(str,   mandatory=True)
-    parent_id = Field(object,mandatory=True)
-    action    = Field(str,   mandatory=True)
-    robot_x   = Field(int,   mandatory=True)
-    robot_y   = Field(int,   mandatory=True)
-    inventory = Field(list,  mandatory=True)
-    needs     = Field(dict,  mandatory=True)
-    g_cost    = Field(int,   mandatory=True)
-    h_cost    = Field(float, mandatory=True)
-    f_cost    = Field(float, mandatory=True)
-    capacity  = Field(int,   mandatory=True)
-
 
 class ExpandDone(Fact):
     """Asserted by the movement mixin after expansion is complete."""
@@ -125,7 +110,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # GOAL DETECTION  (salience 200)
         # ================================================================
         @Rule(
-            AS.node << ActiveNode(),
+            AS.node << State(active=True),
             NOT(Goal()),
             salience=200,
         )
@@ -150,7 +135,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # ================================================================
         # CONSTRAINT CHECKS  (salience 150)
         # ================================================================
-        @Rule(AS.node << ActiveNode(), NOT(Goal()), salience=150)
+        @Rule(AS.node << State(active=True), NOT(Goal()), salience=150)
         def check_out_of_bounds(self, node):
             rx, ry = node["robot_x"], node["robot_y"]
             out    = rx < 0 or rx >= grid_info["cols"] or ry < 0 or ry >= grid_info["rows"]
@@ -159,7 +144,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
                 self.retract(node),
             )
 
-        @Rule(AS.node << ActiveNode(), NOT(Goal()), salience=150)
+        @Rule(AS.node << State(active=True), NOT(Goal()), salience=150)
         def check_capacity(self, node):
             over = inventory_total(node["inventory"]) > node["capacity"]
             over and (
@@ -167,7 +152,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
                 self.retract(node),
             )
 
-        @Rule(AS.node << ActiveNode(), NOT(Goal()), salience=150)
+        @Rule(AS.node << State(active=True), NOT(Goal()), salience=150)
         def check_load_mix(self, node):
             inv     = node["inventory"]
             flowers = {b["flower"] for b in inv}
@@ -181,7 +166,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # ================================================================
         # UNLOAD GENERATION  (salience 30)
         # ================================================================
-        @Rule(AS.node << ActiveNode(), NOT(Goal()), salience=30)
+        @Rule(AS.node << State(active=True), NOT(Goal()), salience=30)
         def expand_unloads(self, node):
             rx, ry  = node["robot_x"], node["robot_y"]
             pid     = pos_to_pid.get((rx, ry))
@@ -212,7 +197,7 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # ================================================================
         # LOAD GENERATION  (salience 20)
         # ================================================================
-        @Rule(AS.node << ActiveNode(), Warehouse(x=MATCH.rx, y=MATCH.ry), NOT(Goal()), salience=20)
+        @Rule(AS.node << State(active=True), Warehouse(x=MATCH.rx, y=MATCH.ry), NOT(Goal()), salience=20)
         def expand_loads(self, node, rx, ry):
             (node["robot_x"] == rx and node["robot_y"] == ry) and [
                 self._try_load(node, item["flower"], item["color"], item["quantity"])
@@ -235,13 +220,13 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # ================================================================
         # MOVEMENT GENERATION + EXPAND DONE  (salience 10)
         # ================================================================
-        @Rule(AS.node << ActiveNode(), NOT(Goal()), salience=10)
+        @Rule(AS.node << State(active=True), NOT(Goal()), salience=10)
         def expand_movements(self, node):
             [
                 self._try_move(node, action)
                 for action in DIRECTIONS
             ]
-            self.retract(node)
+            self.modify(node, active=False)
             self.declare(ExpandDone())
 
         def _try_move(self, node, action):
@@ -289,19 +274,30 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             add_closed(sh)
             print(f"\n[SELECT] {best_id}  g={st.g_cost} h={st.h_cost:.1f} f={st.f_cost:.1f}"
                   f"  pos=({st.robot_x},{st.robot_y})")
-            self.declare(ActiveNode(
-                state_id=best_id,
-                parent_id=st.parent_id,
-                action=st.action,
-                robot_x=st.robot_x,
-                robot_y=st.robot_y,
-                inventory=st.inventory,
-                needs=st.needs,
-                g_cost=st.g_cost,
-                h_cost=st.h_cost,
-                f_cost=st.f_cost,
-                capacity=scenario["robot_capacity"],
-            ))
+            state_fact = next(
+                (
+                    fact for fact in self.facts.values()
+                    if isinstance(fact, State) and fact["state_id"] == best_id
+                ),
+                None,
+            )
+            if state_fact is not None:
+                self.modify(state_fact, active=True)
+            else:
+                self.declare(State(
+                    state_id=best_id,
+                    parent_id=st.parent_id,
+                    action=st.action,
+                    robot_x=st.robot_x,
+                    robot_y=st.robot_y,
+                    inventory=st.inventory,
+                    needs=st.needs,
+                    g_cost=st.g_cost,
+                    h_cost=st.h_cost,
+                    f_cost=st.f_cost,
+                    active=True,
+                    capacity=scenario["robot_capacity"],
+                ))
 
         # ================================================================
         # NO SOLUTION
