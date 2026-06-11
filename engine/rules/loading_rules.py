@@ -26,7 +26,7 @@ from experta import Rule, AS, MATCH, NOT
 
 from models.facts import State, Warehouse, Goal
 from utils.helpers import can_load, add_to_inventory, inventory_total
-from utils.search_tree import push_open
+from utils.search_tree import push_open_with_g
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +216,7 @@ def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
         inventory=new_inv, needs=new_needs,
         g_cost=new_g, h_cost=new_h, f_cost=new_f,
     ))
-    push_open(new_f, sid)
+    push_open_with_g(new_f, sid, new_g)
     # print(f"    → child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
     return sid
 

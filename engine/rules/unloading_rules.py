@@ -38,7 +38,7 @@ def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
     from engine.heuristic import compute_heuristic
     from models.state import StateNode, next_state_id, register_state
     from utils.helpers import state_hash
-    from utils.search_tree import should_expand, push_open
+    from utils.search_tree import should_expand, push_open_with_g
 
     sh = state_hash(new_x, new_y, new_inv, new_needs)
     new_g = current["g_cost"] + 1
@@ -53,7 +53,7 @@ def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
         inventory=new_inv, needs=new_needs,
         g_cost=new_g, h_cost=new_h, f_cost=new_f,
     ))
-    push_open(new_f, sid)
+    push_open_with_g(new_f, sid, new_g)
     # print(f"    → child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
     return sid
 

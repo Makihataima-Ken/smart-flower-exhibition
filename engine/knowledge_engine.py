@@ -35,7 +35,7 @@ from utils.helpers import (
     state_hash,
 )
 from utils.search_tree import (
-    reset_search_structures, push_open, should_expand
+    reset_search_structures, push_open_with_g, should_expand
 )
 from utils.printer import print_grid
 from engine.rules.constraints_rules import make_constraints_mixin
@@ -161,7 +161,7 @@ def run_search(scenario: dict) -> None:
         active=False, capacity=capacity,
     ))
 
-    push_open(h0, root_id)
+    push_open_with_g(h0, root_id, 0)
     engine.declare(ReadyToSelect())
 
     print("\nInitial grid layout:")

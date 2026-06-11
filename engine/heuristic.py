@@ -4,8 +4,6 @@ engine/heuristic.py
 Admissible A* heuristic h(n).
 
   h(n) = total_remaining_units + manhattan_distance_to_nearest_needy_pavilion
-
-Zero explicit if-statements or loops.
 """
 
 from typing import List, Dict, Optional
