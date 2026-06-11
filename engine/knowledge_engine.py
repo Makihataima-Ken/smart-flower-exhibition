@@ -28,19 +28,20 @@ from models.facts import (
     Grid, Warehouse, Pavilion, State, Goal, NoSolution,
 )
 from models.state import (
-    StateNode, next_state_id, register_state, STATE_REGISTRY, get_state
+    StateNode, next_state_id, register_state, STATE_REGISTRY
 )
 from engine.heuristic import compute_heuristic
 from utils.helpers import (
-    state_hash, is_goal, inventory_total,
+    state_hash, inventory_total,
     find_bouquet, add_to_inventory, remove_from_inventory,
     can_load, can_unload, is_valid_position, DIRECTIONS,
 )
 from utils.search_tree import (
     reset_search_structures, pop_open, push_open, should_expand, BEST_G
 )
-from utils.printer import print_grid, print_solution, print_search_tree
+from utils.printer import print_grid
 from engine.rules.constraints_rules import make_constraints_mixin
+from engine.rules.goal_rules import make_goal_mixin
 
 
 # ---------------------------------------------------------------------------
@@ -101,35 +102,14 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
     wh_info    = {"x": warehouse["x"], "y": warehouse["y"]}
 
     ConstraintRulesMixin = make_constraints_mixin()
+    GoalRulesMixin = make_goal_mixin(grid_info, wh_info, pavilions)
 
-    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin):
+    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin):
 
         # ================================================================
-        # GOAL DETECTION  (salience 200)
+        # GOAL DETECTION  (salience 200)  —  imported from
+        # engine/rules/goal_rules.py via GoalRulesMixin.
         # ================================================================
-        @Rule(
-            AS.node << State(active=True),
-            NOT(Goal()),
-            salience=200,
-        )
-        def detect_goal(self, node):
-            is_goal(node["inventory"], node["needs"]) and self._declare_goal(node)
-
-        def _declare_goal(self, node):
-            sid = node["state_id"]
-            print(f"\n{'='*60}\n  GOAL REACHED at {sid}  (g={node['g_cost']})\n{'='*60}")
-            # Record goal id on the engine instance so callers can access it
-            setattr(self, "_goal_state_id", sid)
-            self.declare(Goal(state_id=sid))
-            print_grid(
-                rows=grid_info["rows"], cols=grid_info["cols"],
-                robot_x=node["robot_x"], robot_y=node["robot_y"],
-                warehouse_x=wh_info["x"], warehouse_y=wh_info["y"],
-                pavilions=pavilions,
-            )
-            print_solution(sid)
-            print_search_tree()
-            self.retract(node)
 
         # ================================================================
         # CONSTRAINT CHECKS  (salience 150)  —  now imported from
