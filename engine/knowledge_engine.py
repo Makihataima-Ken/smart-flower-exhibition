@@ -1,7 +1,7 @@
 """
 engine/knowledge_engine_pure.py
 --------------------------------
-Pure-Experta A* search — zero Python if/for/while statements.
+Pure-Experta A* search
 
 ARCHITECTURE (clean, active-state selection):
 
@@ -25,7 +25,7 @@ except (ImportError, AttributeError):
 from experta import KnowledgeEngine
 
 from models.facts import (
-    Grid, Warehouse, Pavilion, State, ReadyToSelect
+    Grid, Warehouse, State, ReadyToSelect
 )
 from models.state import (
     StateNode, next_state_id, register_state, STATE_REGISTRY
@@ -137,14 +137,6 @@ def run_search(scenario: dict) -> None:
     engine.declare(Warehouse(
         x=warehouse["x"], y=warehouse["y"]
     ))
-    [
-        engine.declare(Pavilion(
-            pavilion_id=p["pavilion_id"],
-            x=p["x"], y=p["y"],
-            needs=copy.deepcopy(p["needs"]),
-        ))
-        for p in pavilions
-    ]
 
     rx0, ry0 = robot_start["x"], robot_start["y"]
     inv0     = []

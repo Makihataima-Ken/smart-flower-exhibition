@@ -55,13 +55,6 @@ def is_valid_position(x: int, y: int, cols: int, rows: int) -> bool:
     """Return True if (x, y) is inside the grid boundaries."""
     return 0 <= x < cols and 0 <= y < rows
 
-
-def apply_move(x: int, y: int, action: str) -> Tuple[int, int]:
-    """Return the new (x, y) after applying a movement action."""
-    dx, dy = DIRECTIONS[action]
-    return x + dx, y + dy
-
-
 # ===========================================================================
 # Inventory helpers
 # ===========================================================================
@@ -314,39 +307,3 @@ def pavilions_still_needing(needs: Dict[str, List[Dict]]) -> List[str]:
 
 def manhattan_distance(x1: int, y1: int, x2: int, y2: int) -> int:
     return abs(x1 - x2) + abs(y1 - y2)
-
-
-def can_still_load(node):
-    current_load = inventory_total(node["inventory"])
-
-    if current_load >= node["capacity"]:
-        return False
-
-    return any(
-        item["quantity"] > 0
-        for needs in node["needs"].values()
-        for item in needs
-    )
-    
-def has_compatible_load(node):
-    remaining_capacity = (
-        node["capacity"]
-        - inventory_total(node["inventory"])
-    )
-
-    if remaining_capacity <= 0:
-        return False
-
-    for needs in node["needs"].values():
-        for item in needs:
-            ok, _ = can_load(
-                node["inventory"],
-                item["flower"],
-                item["color"],
-                1,
-                node["capacity"],
-            )
-            if ok:
-                return True
-
-    return False

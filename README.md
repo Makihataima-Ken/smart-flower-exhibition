@@ -38,40 +38,50 @@ A robot operates on a rectangular 2D grid containing:
 ```
 smart-flower-exhibition/
 │
-├── main.py                      # Entry point
+├── main.py                      # Entry point with CLI args
 ├── engine/
-|   ├── rules/
-│   │   ├── rules_movement.py        # Robot movement rule
-|   │   ├── rules_loading.py         # Warehouse loading rule
-|   │   ├── rules_unloading.py       # Pavilion unloading rule
-|   │   ├── rules_constraints.py     # Validation / pruning rules
-|   │   └── rules_goal.py            # Goal detection rule
+│   ├── rules/
+│   │   ├── movement_rules.py       # Robot movement rule (salience 10)
+│   │   ├── loading_rules.py        # Warehouse loading rule (salience 20)
+│   │   ├── unloading_rules.py      # Pavilion unloading rule (salience 30)
+│   │   ├── constraints_rules.py    # Validation / pruning rules (salience 150)
+│   │   ├── goal_rules.py           # Goal detection rule (salience 200)
+│   │   └── search_control.py       # A* open-list selection (salience 1000)
 │   ├── knowledge_engine.py      # Engine factory + A* search loop
 │   └── heuristic.py             # A* heuristic h(n)
 │
 ├── models/
 │   ├── facts.py                 # Experta Fact classes
-│   ├── state.py                 # StateNode dataclass + global registry
-│   └── enums.py                 # Flower types and valid colors
+│   └── state.py                 # StateNode dataclass + global registry
 │
 ├── utils/
 │   ├── helpers.py               # Pure validation + hashing functions
-│   ├── printer.py               # Output formatting
+│   ├── printer.py               # Terminal output formatting
 │   └── search_tree.py           # Open list (min-heap) + closed set
 │
-└── data/
-    └── sample_case.py           # Concrete scenario definition
+├── data/
+│   ├── scenario_loader.py       # JSON scenario loader + capacity calculator
+│   └── scenarios/               # JSON scenario definitions
+│       ├── sample_case.json
+│       ├── assignment_case.json
+│       └── tayseer's_case.json
+│
+└── visualization/               # Pygame-based solution replay
+    ├── animator.py
+    ├── renderer.py
+    ├── view_models.py
+    └── constants.py
 ```
 
 ### Design Principles
 
 | Principle | Implementation |
 |-----------|----------------|
-| Separation of concerns | Rules split into 5 separate files by concern |
+| Separation of concerns | Rules split into 6 separate files by concern |
 | Thin rules | Heavy logic lives in `helpers.py`; rules delegate to helpers |
 | Immutable state | Each action creates a NEW State fact; old states are never mutated |
-| Duplicate detection | State hashing in `helpers.state_hash()` + closed set |
-| Modular engine | Rule classes built as mixins, composed via Python multiple inheritance |
+| Duplicate detection | State hashing in `helpers.state_hash()` + closed set (`BEST_G`) |
+| Modular engine | Rule classes built as mixins via factory functions, composed via multiple inheritance |
 
 ---
 
@@ -95,15 +105,15 @@ In this system:
 ```
 Main Loop
 │
-├── Pop state with lowest f_cost from open heap
+├── Select state with lowest f_cost from open heap (search_control.py)
 ├── Mark as active (active=True) in working memory
 ├── engine.run()  ← Experta fires all matching rules in salience order:
 │   │
-│   ├── detect_goal       (salience 200) — halt if goal reached
-│   ├── Constraint rules  (salience 100) — retract illegal states
-│   ├── expand_unloads    (salience  30) — generate unload children
-│   ├── expand_loads      (salience  20) — generate load children
-│   └── expand_movements  (salience  10) — generate move children + deactivate
+│   ├── detect_goal       (salience 200)   — halt if goal reached
+│   ├── Constraint rules  (salience 150)   — retract illegal states
+│   ├── expand_unloads    (salience  30)   — generate unload children
+│   ├── expand_loads      (salience  20)   — generate load children
+│   └── expand_movements  (salience  10)   — generate move children + deactivate
 │
 └── Repeat until goal found or open list empty
 ```
@@ -133,7 +143,8 @@ f(n) = g(n) + h(n)
 
 The **open list** is a min-heap (priority queue) sorted by `f(n)`.
 The **closed set** stores hashed state signatures to avoid re-expanding
-already-visited states.
+already-visited states. `BEST_G` tracks the best `g` cost found for each state
+hash, ensuring only cheaper paths are explored.
 
 Experta's **salience** ordering simulates A\* *within* a single expansion:
 higher-salience rules (goal detection, constraints) fire before lower-salience
@@ -146,7 +157,8 @@ Two states are considered identical if they share:
 - Inventory contents (flower, color, quantity)
 - Remaining pavilion needs (per pavilion)
 
-The hash is computed with `json.dumps` on a canonically sorted representation.
+The hash is computed with `json.dumps` on a canonically sorted representation
+(`_normalize_inventory` and `_normalize_needs` in `utils/helpers.py`).
 
 ---
 
@@ -184,29 +196,32 @@ capacity = max(total demand of pavilion P1, total demand of pavilion P2, ...)
 This guarantees the robot can always carry enough flowers to serve any single
 pavilion in one trip (if the loading mode is compatible).
 
+### Combination Loading
+
+Instead of emitting one child per individual demand item, the warehouse
+expansion generates **maximal compatible loading combinations**: it fills the
+robot as much as the capacity and the Mode-A/Mode-B constraints allow, and emits
+one child per maximal combination. This mirrors the "unload-all" operator in
+`unloading_rules.py` so A* evaluates the true cost of a *full* trip.
+
 ---
 
 ## Heuristic Function
 
 ```python
-h(n) = remaining_units + distance_to_nearest_needy_pavilion
+h(n) = manhattan_d(robot, warehouse)
+     + (trips - 1) * (2 * D_avg + 2)
+     + D_avg + 2
 ```
 
 Where:
-- `remaining_units` = sum of all bouquet quantities still needed by all pavilions
-- `distance_to_nearest_needy_pavilion` = Manhattan distance from robot to the
-  closest pavilion that still has unsatisfied needs
+- `trips = ceil(remaining_to_fetch / capacity)`
+- `remaining_to_fetch = max(0, total_needs - inventory_load)`
+- `D_avg = average Manhattan distance from warehouse to needy pavilions`
 
-### Admissibility Proof
-
-A heuristic `h` is **admissible** if it never overestimates the true cost.
-
-- Every remaining bouquet unit requires at least 1 unload action → `remaining_units` ≤ actual unload cost ✓
-- The robot must travel at least `distance_to_nearest_needy_pavilion` steps → Manhattan distance ≤ actual travel ✓
-- Sum of two lower bounds is still a lower bound → `h(n)` is admissible ✓
-
-Because `h` is admissible, A* with this heuristic is guaranteed to find the
-**optimal** solution path.
+This heuristic estimates the remaining work by modeling round trips from the
+warehouse to pavilions, accounting for the number of trips required given robot
+capacity.
 
 ---
 
@@ -231,7 +246,8 @@ Defines all Experta `Fact` subclasses:
 - `Pavilion` — location and requirements
 - `State` — search tree node (the main unit of search)
 - `Goal` — signals the goal state was reached
-- `Visited` — duplicate tracking
+- `NoSolution` — asserted when the frontier is empty and no goal was found
+- `ReadyToSelect` / `ExpandDone` — control facts for the search loop
 
 ### `models/state.py`
 - `StateNode` — a plain Python dataclass mirroring `State`
@@ -246,9 +262,11 @@ Pure functions with no Experta dependency:
 - `state_hash()` — deterministic string hash for duplicate detection
 - `is_goal()` — checks if all needs are met and inventory is empty
 - `manhattan_distance()` — used by the heuristic
+- `loading_mode()` — determines current loading mode (A, B, or empty)
 
 ### `engine/knowledge_engine.py`
 - `build_engine()` — creates the composed `KnowledgeEngine` via multiple inheritance
+  using factory-generated mixins
 - `run_search()` — initialises the search, declares world facts, runs the A* loop
 
 ---
@@ -293,18 +311,34 @@ pip install experta
 ### Run
 
 ```bash
+# Default scenario
 python main.py
+
+# Custom scenario
+python main.py --scenario data/scenarios/assignment_case.json
+
+# With pygame visualization replay
+python main.py --scenario data/scenarios/sample_case.json --visualize
 ```
 
 ### Expected Output
 
 1. Scenario summary
 2. ASCII grid layout
-3. Per-iteration expansion log
-4. **GOAL REACHED** message when the goal is found
-5. Final grid layout
-6. Step-by-step **solution path**
-7. Full **search tree** table
+3. **GOAL REACHED** message when the goal is found
+4. Final grid layout
+5. Step-by-step **solution path**
+6. Full **search tree** table
+
+### Visualization Controls (when `--visualize` is used)
+
+| Key | Action |
+|-----|--------|
+| SPACE | Pause / resume |
+| RIGHT | Next step |
+| LEFT  | Previous step |
+| R     | Restart |
+| ESC   | Quit |
 
 ---
 
@@ -353,7 +387,8 @@ loops over a graph. Experta re-frames the problem as **rule-based inference**:
 
 - The search *state* is a fact in working memory
 - Each *action* is encoded as a rule that generates successor state facts
-- The *evaluation order* (A* priority) is controlled by salience
+- The *evaluation order* (A* priority) is controlled externally via a Python heap,
+  with `active=True` selectively triggering expansion for one state at a time
 - *Constraint enforcement* is declarative — illegal states are retracted by rules
 
 This approach separates the **what** (rules) from the **how** (engine), making
@@ -378,7 +413,7 @@ the knowledge base modular and inspectable.
 - **State space:** O(G × I × N) where G = grid cells, I = inventory combinations,
   N = need configurations
 - **Time:** A* explores O(b^d) states where b = branching factor, d = solution depth
-- **Admissible heuristic → optimal:** The chosen h(n) never overestimates,
-  so A* is guaranteed to find the shortest-cost solution
+- **Heuristic:** The chosen h(n) estimates remaining round trips, guiding A*
+  toward efficient warehouse-to-pavilion delivery sequences
 
 ---

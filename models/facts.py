@@ -91,25 +91,6 @@ class State(Fact):
     capacity  = Field(int,    mandatory=False)
 
 
-class Visited(Fact):
-    """Tracks already-explored state hashes to avoid re-expansion.
-
-    Fields:
-        state_hash (str): hash string produced by utils/helpers.py
-    """
-    state_hash = Field(str, mandatory=True)
-
-
-class SearchCycle(Fact):
-    """Phase marker for the pure-Experta A* control loop."""
-    phase = Field(str, mandatory=True)
-
-
-class CurrentNode(Fact):
-    """The single node being expanded right now."""
-    state_id = Field(str, mandatory=True)
-
-
 class NoSolution(Fact):
     """Asserted when the frontier is empty and no goal was found."""
     pass
@@ -124,9 +105,8 @@ class Goal(Fact):
     state_id = Field(str, mandatory=True)
     
 # ---------------------------------------------------------------------------
-# Control facts (defined here to avoid circular imports)
+# Control facts
 # ---------------------------------------------------------------------------
-
 
 class ReadyToSelect(Fact):
     """Initial trigger for the very first do_select call."""
