@@ -129,9 +129,13 @@ def loading_mode(inventory: List[Dict]) -> Optional[str]:
                 (
                     len(_inventory_flowers(inventory)) > 1,
                     len(_inventory_colors(inventory))  > 1,
-                ),
-                (_ for _ in ()).throw(ValueError("Inventory is in an invalid mixed state")),
+                )
             )
+            # Lazily raise ONLY for the mixed (many flowers, many colors) case.
+            # NOTE: passing the throw as .get()'s default argument evaluates it
+            # eagerly (arguments are evaluated before the call), so it raised for
+            # *every* non-empty inventory.  `or` keeps it lazy: "A"/"B" are truthy.
+            or (_ for _ in ()).throw(ValueError("Inventory is in an invalid mixed state"))
         )
     )
 
