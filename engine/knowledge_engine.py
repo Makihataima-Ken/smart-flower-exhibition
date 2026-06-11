@@ -32,8 +32,7 @@ from models.state import (
 )
 from engine.heuristic import compute_heuristic
 from utils.helpers import (
-    state_hash, find_bouquet, remove_from_inventory,
-    can_unload, is_valid_position, DIRECTIONS,
+    state_hash, is_valid_position, DIRECTIONS,
 )
 from utils.search_tree import (
     reset_search_structures, pop_open, push_open, should_expand, BEST_G
@@ -42,6 +41,7 @@ from utils.printer import print_grid
 from engine.rules.constraints_rules import make_constraints_mixin
 from engine.rules.goal_rules import make_goal_mixin
 from engine.rules.loading_rules import make_loading_mixin
+from engine.rules.unloading_rules import make_unloading_mixin
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +104,9 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
     ConstraintRulesMixin = make_constraints_mixin()
     GoalRulesMixin = make_goal_mixin(grid_info, wh_info, pavilions)
     LoadingRulesMixin = make_loading_mixin(pavilion_positions, wh_info)
+    UnloadingRulesMixin = make_unloading_mixin(pavilion_positions, wh_info, pos_to_pid)
 
-    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin, LoadingRulesMixin):
+    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin, UnloadingRulesMixin, LoadingRulesMixin):
 
         # ================================================================
         # GOAL DETECTION  (salience 200)  —  imported from
@@ -119,38 +120,9 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # ================================================================
 
         # ================================================================
-        # UNLOAD GENERATION  (salience 30)
+        # UNLOAD GENERATION  (salience 30)  —  imported from
+        # engine/rules/unloading_rules.py via UnloadingRulesMixin.
         # ================================================================
-        @Rule(AS.node << State(active=True), NOT(Goal()), salience=30)
-        def expand_unloads(self, node):
-            rx, ry  = node["robot_x"], node["robot_y"]
-            pid     = pos_to_pid.get((rx, ry))
-            pav_needs = pid and node["needs"].get(pid)
-            if not pav_needs:
-                return
-            for inv_item in node["inventory"]:
-                if inv_item["quantity"] <= 0:
-                    continue
-                need_item = find_bouquet(list(pav_needs), inv_item["flower"], inv_item["color"])
-                if need_item is None or need_item["quantity"] <= 0:
-                    continue
-                max_qty = min(inv_item["quantity"], need_item["quantity"])
-                # for qty in range(1, max_qty + 1):
-                self._try_unload(node, pid, inv_item, need_item, max_qty)
-
-        def _try_unload(self, node, pid, inv_item, need_item, qty):
-            new_inv   = [{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in node["inventory"]]
-            new_needs = {p:[{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in blist] for p,blist in node["needs"].items()}
-            ok, _ = can_unload(new_inv, new_needs[pid], inv_item["flower"], inv_item["color"], qty)
-            ok and remove_from_inventory(new_inv, inv_item["flower"], inv_item["color"], qty)
-            ne = ok and find_bouquet(new_needs[pid], inv_item["flower"], inv_item["color"])
-            ne and ne.__setitem__("quantity", ne["quantity"] - qty)
-            ok and _make_child(
-                self, node,
-                f"unload {pid} {inv_item['flower']} {inv_item['color']} {qty}",
-                node["robot_x"], node["robot_y"],
-                new_inv, new_needs, pavilion_positions, node["capacity"], wh_info,
-            )
 
         # ================================================================
         # LOAD GENERATION  (salience 20)  —  imported from
