@@ -122,3 +122,8 @@ class Goal(Fact):
         state_id (str): the winning state
     """
     state_id = Field(str, mandatory=True)
+    
+    
+class ExpandDone(Fact):
+    """Asserted by the movement mixin after expansion is complete."""
+    pass

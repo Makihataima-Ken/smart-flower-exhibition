@@ -25,14 +25,14 @@ except (ImportError, AttributeError):
 from experta import KnowledgeEngine, Rule, Fact, AS, NOT
 
 from models.facts import (
-    Grid, Warehouse, Pavilion, State, Goal, NoSolution,
+    Grid, Warehouse, Pavilion, State, Goal, NoSolution, ExpandDone
 )
 from models.state import (
     StateNode, next_state_id, register_state, STATE_REGISTRY
 )
 from engine.heuristic import compute_heuristic
 from utils.helpers import (
-    state_hash, is_valid_position, DIRECTIONS,
+    state_hash,
 )
 from utils.search_tree import (
     reset_search_structures, pop_open, push_open, should_expand, BEST_G
@@ -42,15 +42,12 @@ from engine.rules.constraints_rules import make_constraints_mixin
 from engine.rules.goal_rules import make_goal_mixin
 from engine.rules.loading_rules import make_loading_mixin
 from engine.rules.unloading_rules import make_unloading_mixin
+from engine.rules.movement_rules import make_movement_mixin
 
 
 # ---------------------------------------------------------------------------
 # Control facts (defined here to avoid circular imports)
 # ---------------------------------------------------------------------------
-
-class ExpandDone(Fact):
-    """Asserted by the movement mixin after expansion is complete."""
-    pass
 
 
 class ReadyToSelect(Fact):
@@ -104,9 +101,10 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
     ConstraintRulesMixin = make_constraints_mixin()
     GoalRulesMixin = make_goal_mixin(grid_info, wh_info, pavilions)
     LoadingRulesMixin = make_loading_mixin(pavilion_positions, wh_info)
-    UnloadingRulesMixin = make_unloading_mixin(pavilion_positions, wh_info, pos_to_pid)
+    UnloadingRulesMixin = make_unloading_mixin(pavilion_positions, wh_info,pos_to_pid)
+    MovementRulesMixin = make_movement_mixin(pavilion_positions, grid_info, wh_info)
 
-    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin, UnloadingRulesMixin, LoadingRulesMixin):
+    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin, UnloadingRulesMixin, LoadingRulesMixin, MovementRulesMixin):
 
         # ================================================================
         # GOAL DETECTION  (salience 200)  —  imported from
@@ -130,28 +128,9 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # ================================================================
 
         # ================================================================
-        # MOVEMENT GENERATION + EXPAND DONE  (salience 10)
+        # MOVEMENT GENERATION + EXPAND DONE  (salience 10)  —  imported from
+        # engine/rules/movement_rules.py via MovementRulesMixin.
         # ================================================================
-        @Rule(AS.node << State(active=True), NOT(Goal()), salience=10)
-        def expand_movements(self, node):
-            [
-                self._try_move(node, action)
-                for action in DIRECTIONS
-            ]
-            self.retract(node)
-            self.declare(ExpandDone())
-
-        def _try_move(self, node, action):
-            dx, dy = DIRECTIONS[action]
-            new_x  = node["robot_x"] + dx
-            new_y  = node["robot_y"] + dy
-            if not is_valid_position(new_x, new_y, grid_info["cols"], grid_info["rows"]):return
-            new_inv   = [{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in node["inventory"]]
-            new_needs = {p:[{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in blist] for p,blist in node["needs"].items()}
-            _make_child(
-                self, node, action, new_x, new_y,
-                new_inv, new_needs, pavilion_positions, node["capacity"], wh_info,
-            )
 
         # ================================================================
         # SELECT + ACTIVATE  (salience 1000)
