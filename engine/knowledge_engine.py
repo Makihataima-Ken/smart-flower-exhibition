@@ -22,7 +22,7 @@ try:
 except (ImportError, AttributeError):
     pass
 
-from experta import KnowledgeEngine, Rule, Fact, MATCH, AS, NOT
+from experta import KnowledgeEngine, Rule, Fact, AS, NOT
 
 from models.facts import (
     Grid, Warehouse, Pavilion, State, Goal, NoSolution,
@@ -32,9 +32,8 @@ from models.state import (
 )
 from engine.heuristic import compute_heuristic
 from utils.helpers import (
-    state_hash, inventory_total,
-    find_bouquet, add_to_inventory, remove_from_inventory,
-    can_load, can_unload, is_valid_position, DIRECTIONS,
+    state_hash, find_bouquet, remove_from_inventory,
+    can_unload, is_valid_position, DIRECTIONS,
 )
 from utils.search_tree import (
     reset_search_structures, pop_open, push_open, should_expand, BEST_G
@@ -42,6 +41,7 @@ from utils.search_tree import (
 from utils.printer import print_grid
 from engine.rules.constraints_rules import make_constraints_mixin
 from engine.rules.goal_rules import make_goal_mixin
+from engine.rules.loading_rules import make_loading_mixin
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +103,9 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
 
     ConstraintRulesMixin = make_constraints_mixin()
     GoalRulesMixin = make_goal_mixin(grid_info, wh_info, pavilions)
+    LoadingRulesMixin = make_loading_mixin(pavilion_positions, wh_info)
 
-    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin):
+    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin, LoadingRulesMixin):
 
         # ================================================================
         # GOAL DETECTION  (salience 200)  —  imported from
@@ -152,39 +153,9 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
             )
 
         # ================================================================
-        # LOAD GENERATION  (salience 20)
+        # LOAD GENERATION  (salience 20)  —  imported from
+        # engine/rules/loading_rules.py via LoadingRulesMixin.
         # ================================================================
-        @Rule(AS.node << State(active=True), Warehouse(x=MATCH.rx, y=MATCH.ry), NOT(Goal()), salience=20)
-        def expand_loads(self, node, rx, ry):
-            if node["robot_x"] != rx or node["robot_y"] != ry:
-                return
-
-            current_load = inventory_total(node["inventory"])
-            remaining_capacity = node["capacity"] - current_load
-
-            if remaining_capacity <= 0:
-                return
-
-            # Refined loading: iterate per pavilion, per need
-            for pavilion_needs in node["needs"].values():
-                for item in pavilion_needs:
-                    needed_qty = item["quantity"]
-                    if needed_qty <= 0:
-                        continue
-                    qty = min(needed_qty, remaining_capacity)
-                    if qty > 0:
-                        self._try_load( node, item["flower"], item["color"], qty)
-
-        def _try_load(self, node, flower, color, qty):
-            new_inv   = [{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in node["inventory"]]
-            new_needs = {p:[{"flower":b["flower"],"color":b["color"],"quantity":b["quantity"]} for b in blist] for p,blist in node["needs"].items()}
-            ok, _ = can_load(new_inv, flower, color, qty, node["capacity"])
-            ok and add_to_inventory(new_inv, flower, color, qty)
-            ok and _make_child(
-                self, node, f"load {flower} {color} {qty}",
-                node["robot_x"], node["robot_y"],
-                new_inv, new_needs, pavilion_positions, node["capacity"], wh_info,
-            )
 
         # ================================================================
         # MOVEMENT GENERATION + EXPAND DONE  (salience 10)
