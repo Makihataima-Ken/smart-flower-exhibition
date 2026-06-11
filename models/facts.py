@@ -123,6 +123,14 @@ class Goal(Fact):
     """
     state_id = Field(str, mandatory=True)
     
+# ---------------------------------------------------------------------------
+# Control facts (defined here to avoid circular imports)
+# ---------------------------------------------------------------------------
+
+
+class ReadyToSelect(Fact):
+    """Initial trigger for the very first do_select call."""
+    pass
     
 class ExpandDone(Fact):
     """Asserted by the movement mixin after expansion is complete."""

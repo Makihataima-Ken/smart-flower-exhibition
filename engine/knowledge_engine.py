@@ -22,10 +22,10 @@ try:
 except (ImportError, AttributeError):
     pass
 
-from experta import KnowledgeEngine, Rule, Fact, AS, NOT
+from experta import KnowledgeEngine
 
 from models.facts import (
-    Grid, Warehouse, Pavilion, State, Goal, NoSolution, ExpandDone
+    Grid, Warehouse, Pavilion, State, ReadyToSelect
 )
 from models.state import (
     StateNode, next_state_id, register_state, STATE_REGISTRY
@@ -35,7 +35,7 @@ from utils.helpers import (
     state_hash,
 )
 from utils.search_tree import (
-    reset_search_structures, pop_open, push_open, should_expand, BEST_G
+    reset_search_structures, push_open, should_expand
 )
 from utils.printer import print_grid
 from engine.rules.constraints_rules import make_constraints_mixin
@@ -43,16 +43,7 @@ from engine.rules.goal_rules import make_goal_mixin
 from engine.rules.loading_rules import make_loading_mixin
 from engine.rules.unloading_rules import make_unloading_mixin
 from engine.rules.movement_rules import make_movement_mixin
-
-
-# ---------------------------------------------------------------------------
-# Control facts (defined here to avoid circular imports)
-# ---------------------------------------------------------------------------
-
-
-class ReadyToSelect(Fact):
-    """Initial trigger for the very first do_select call."""
-    pass
+from engine.rules.search_control import make_search_control_mixin
 
 
 # ---------------------------------------------------------------------------
@@ -101,10 +92,11 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
     ConstraintRulesMixin = make_constraints_mixin()
     GoalRulesMixin = make_goal_mixin(grid_info, wh_info, pavilions)
     LoadingRulesMixin = make_loading_mixin(pavilion_positions, wh_info)
-    UnloadingRulesMixin = make_unloading_mixin(pavilion_positions, wh_info,pos_to_pid)
+    UnloadingRulesMixin = make_unloading_mixin(pavilion_positions, wh_info, pos_to_pid)
     MovementRulesMixin = make_movement_mixin(pavilion_positions, grid_info, wh_info)
+    SearchControlRulesMixin = make_search_control_mixin(capacity)
 
-    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin, UnloadingRulesMixin, LoadingRulesMixin, MovementRulesMixin):
+    class FlowerDeliveryEngine(KnowledgeEngine, ConstraintRulesMixin, GoalRulesMixin, UnloadingRulesMixin, LoadingRulesMixin, MovementRulesMixin, SearchControlRulesMixin):
 
         # ================================================================
         # GOAL DETECTION  (salience 200)  —  imported from
@@ -133,64 +125,10 @@ def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
         # ================================================================
 
         # ================================================================
-        # SELECT + ACTIVATE  (salience 1000)
-        # Fires on ReadyToSelect (first time) or ExpandDone (subsequent).
+        # SELECT + ACTIVATE  (salience 1000)  —  imported from
+        # engine/rules/search_control.py via SearchControlRulesMixin.
         # ================================================================
-        @Rule(AS.trigger << ReadyToSelect(), NOT(Goal()), NOT(NoSolution()), salience=1000)
-        def do_select_initial(self, trigger):
-            self.retract(trigger)
-            self._select_and_activate()
-
-        @Rule(AS.trigger << ExpandDone(), NOT(Goal()), NOT(NoSolution()), salience=1000)
-        def do_select(self, trigger):
-            self.retract(trigger)
-            self._select_and_activate()
-
-        def _select_and_activate(self):
-            best_id = pop_open()
-            (not best_id) and self.declare(NoSolution())
-            best_id and self._try_activate(best_id)
-
-        def _try_activate(self, best_id):
-            st = STATE_REGISTRY.get(best_id)
-            if st is None:
-                self._select_and_activate()
-                return
-            sh = state_hash(st.robot_x,st.robot_y,st.inventory,st.needs,)
-
-            best_g = BEST_G.get(sh)
-
-            if best_g is not None and st.g_cost > best_g:
-                self._select_and_activate()
-                return
-            self._activate_node(best_id, st)
-
-        def _activate_node(self, best_id, st):
-            
-            print(f"\n[SELECT] {best_id}  g={st.g_cost} h={st.h_cost:.1f} f={st.f_cost:.1f}"
-                  f"  pos=({st.robot_x},{st.robot_y})")
-            
-            self.declare(State(
-                    state_id=best_id,
-                    parent_id=st.parent_id,
-                    action=st.action,
-                    robot_x=st.robot_x,
-                    robot_y=st.robot_y,
-                    inventory=st.inventory,
-                    needs=st.needs,
-                    g_cost=st.g_cost,
-                    h_cost=st.h_cost,
-                    f_cost=st.f_cost,
-                    active=True,
-                    capacity=scenario["robot_capacity"],
-                ))
-
-        # ================================================================
-        # NO SOLUTION
-        # ================================================================
-        @Rule(NoSolution())
-        def report_no_solution(self):
-            print("\nSearch exhausted – no solution found.")
+        pass
 
     engine = FlowerDeliveryEngine()
     # initialize holder for found goal id (None when no goal found)
