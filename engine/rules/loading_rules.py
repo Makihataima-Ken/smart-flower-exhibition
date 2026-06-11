@@ -51,7 +51,7 @@ def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
         g_cost=new_g, h_cost=new_h, f_cost=new_f,
     ))
     push_open(new_f, sid)
-    print(f"    → child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
+    # print(f"    → child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
     return sid
 
 

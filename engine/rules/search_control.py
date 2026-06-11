@@ -52,8 +52,8 @@ def make_search_control_mixin(scenario_capacity: int):
             self._activate_node(best_id, st)
 
         def _activate_node(self, best_id, st):
-            print(f"\n[SELECT] {best_id}  g={st.g_cost} h={st.h_cost:.1f} f={st.f_cost:.1f}"
-                  f"  pos=({st.robot_x},{st.robot_y})")
+            # print(f"\n[SELECT] {best_id}  g={st.g_cost} h={st.h_cost:.1f} f={st.f_cost:.1f}"
+            #       f"  pos=({st.robot_x},{st.robot_y})")
             self.declare(State(
                 state_id=best_id,
                 parent_id=st.parent_id,

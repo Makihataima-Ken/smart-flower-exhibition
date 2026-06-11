@@ -54,8 +54,95 @@ def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
         g_cost=new_g, h_cost=new_h, f_cost=new_f,
     ))
     push_open(new_f, sid)
-    print(f"    → child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
+    # print(f"    → child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
     return sid
+
+# ==============================================================
+# Unload-all operator
+# ==============================================================
+
+def _try_unload_all(
+    engine,
+    node,
+    pid,
+    pavilion_positions,
+    warehouse_pos,
+):
+    """
+    Deliver every compatible bouquet in one action.
+    """
+
+    new_inv = [
+        {
+            "flower": b["flower"],
+            "color": b["color"],
+            "quantity": b["quantity"],
+        }
+        for b in node["inventory"]
+    ]
+
+    new_needs = {
+        p: [
+            {
+                "flower": b["flower"],
+                "color": b["color"],
+                "quantity": b["quantity"],
+            }
+            for b in blist
+        ]
+        for p, blist in node["needs"].items()
+    }
+
+    changed = False
+
+    for inv_item in list(new_inv):
+
+        need_item = find_bouquet(
+            new_needs[pid],
+            inv_item["flower"],
+            inv_item["color"],
+        )
+
+        if need_item is None:
+            continue
+
+        if need_item["quantity"] <= 0:
+            continue
+
+        qty = min(
+            inv_item["quantity"],
+            need_item["quantity"],
+        )
+
+        if qty <= 0:
+            continue
+
+        remove_from_inventory(
+            new_inv,
+            inv_item["flower"],
+            inv_item["color"],
+            qty,
+        )
+
+        need_item["quantity"] -= qty
+
+        changed = True
+
+    if not changed:
+        return
+
+    _make_child(
+        engine,
+        node,
+        f"unload {pid}",
+        node["robot_x"],
+        node["robot_y"],
+        new_inv,
+        new_needs,
+        pavilion_positions,
+        node["capacity"],
+        warehouse_pos,
+    )
 
 
 def make_unloading_mixin(pavilion_positions: dict, warehouse_pos: dict, pos_to_pid:dict):
@@ -69,18 +156,18 @@ def make_unloading_mixin(pavilion_positions: dict, warehouse_pos: dict, pos_to_p
             salience=30,
         )
         def expand_unloads(self, node):
-            rx, ry  = node["robot_x"], node["robot_y"]
+            rx, ry = node["robot_x"], node["robot_y"]
+
             pid = pos_to_pid.get((rx, ry))
-            pav_needs = pid and node["needs"].get(pid)
+
+            if pid is None:
+                return
+
+            pav_needs = node["needs"].get(pid)
+
             if not pav_needs:
                 return
-            for inv_item in node["inventory"]:
-                if inv_item["quantity"] <= 0:
-                    continue
-                need_item = find_bouquet(list(pav_needs), inv_item["flower"], inv_item["color"])
-                if need_item is None or need_item["quantity"] <= 0:
-                    continue
-                max_qty = min(inv_item["quantity"], need_item["quantity"])
-                _try_unload(self, node, pid, inv_item, need_item, max_qty, pavilion_positions, warehouse_pos)
+
+            _try_unload_all(self, node, pid,pavilion_positions, warehouse_pos)
 
     return UnloadingRules

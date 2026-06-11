@@ -43,7 +43,7 @@ def make_goal_mixin(grid_info: dict, warehouse_info: dict, pavilion_list: list):
                 pavilions=pavilion_list,
             )
             print_solution(sid)
-            print_search_tree()
+            # print_search_tree()
             self.retract(node)
 
     return GoalRules

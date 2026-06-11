@@ -45,35 +45,6 @@ from engine.rules.unloading_rules import make_unloading_mixin
 from engine.rules.movement_rules import make_movement_mixin
 from engine.rules.search_control import make_search_control_mixin
 
-
-# ---------------------------------------------------------------------------
-# Child-state factory (shared by all generation rules)
-# ---------------------------------------------------------------------------
-
-def _make_child(engine, current, action, new_x, new_y, new_inv, new_needs,
-                pavilion_positions, cap, warehouse_pos):
-    sh = state_hash(new_x, new_y, new_inv, new_needs)
-    
-    new_g = current["g_cost"] + 1
-
-    if not should_expand(sh, new_g):
-        return
-    new_h = compute_heuristic(new_x, new_y, new_inv, new_needs, pavilion_positions, warehouse_pos, cap)
-    new_f = new_g + new_h
-    sid   = next_state_id()
-
-    register_state(StateNode(
-        state_id=sid, parent_id=current["state_id"], action=action,
-        robot_x=new_x, robot_y=new_y,
-        inventory=new_inv, needs=new_needs,
-        g_cost=new_g, h_cost=new_h, f_cost=new_f,
-    ))
-    push_open(new_f, sid)
-
-    print(f"    → child {sid} via {action!r} pos=({new_x},{new_y}) f={new_f:.1f}")
-    return sid
-
-
 def build_engine(scenario: dict) -> "FlowerDeliveryEngine":
     grid      = scenario["grid"]
     warehouse = scenario["warehouse"]
